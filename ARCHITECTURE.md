@@ -15,7 +15,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  1. VIDEO INPUT
 ══════════════════════════════════════════════════════════════
 
- Source          : Mobile-recorded Indian road traffic videos
+ Source          : Recorded Indian road traffic videos. The
+                   test footage is dashcam-style driving
+                   video.
  Camera          : Stationary roadside OR moving vehicle
  Resolution      : Any, read from each video
                    (1920 × 1080 suggested)
@@ -23,8 +25,10 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                    (30 FPS suggested)
  Video Codec     : H.264
  Container       : MP4
- Bitrate         : ~6 Mbps (recommended starting point)
- Duration        : Initially 1–3 minutes per video
+ Bitrate         : Any (~6 Mbps or more suggested). The test
+                   footage runs from 3 to 33 Mbps.
+ Duration        : Any. Development uses 2-minute pieces; the
+                   full test videos run 5 to 41 minutes.
 
  No live camera or RTSP streaming required.
 
@@ -505,6 +509,12 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    because the stock YOLO26m model knows only those, so
    other vehicle types may be missed or mislabelled.
 
+   Measure real accuracy. For now the dashboard shows
+   recognition coverage and confidence only, labelled as not
+   being accuracy. Later: hand-check the true plate numbers
+   for one or two clips and measure the pipeline against
+   them.
+
  OPEN ITEM — LICENCE:
    Ultralytics YOLO26, and any weights trained from it, are
    AGPL-3.0. Company use may need an Ultralytics Enterprise
@@ -590,6 +600,75 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      still passed. If the OCR model later fails to use the
      GPU, try:
        export LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH
+
+ PADDLEOCR SOURCE CODE (ocr/vendor/, git-ignored)
+   Downloaded : 2026-11-06
+   Version    : tag v3.7.0, commit
+                b03f46425e8ff4442b268ce449e3eef758146cd4
+   Size       : about 243 MB
+
+   The Awiros OCR model is not a pip package: its network is
+   built from PaddleOCR's own source code (the ppocr folder),
+   so that code must be present on disk.
+
+   Download (in WSL):
+     cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
+     git clone --depth 1 --branch v3.7.0 https://github.com/PaddlePaddle/PaddleOCR.git ocr/vendor/PaddleOCR
+
+   Checked on this machine: the code imports in the OCR
+   environment with the packages already installed, and the
+   network it builds matches the Awiros weights exactly
+   (545 of 545 tensors, 37.3 million values, no mismatches).
+
+ DEVELOPMENT TOOLS AND TRACKING DEPENDENCY (main environment)
+   Installed : 2026-11-06
+   Versions  : ruff 0.17.4, pytest 9.2.0, lap 0.5.14
+
+   Install (in WSL, from the project root):
+     export UV_LINK_MODE=copy
+     uv add "lap>=0.5.12"
+     uv add --dev ruff pytest
+
+   lap is required by Ultralytics tracking. Ultralytics would
+   otherwise install it by itself, outside uv.lock, and the
+   next uv sync would remove it. The application sets
+   YOLO_AUTOINSTALL=False so that cannot happen silently.
+
+   Use:
+     uv run ruff check
+     uv run ruff format
+     uv run pytest
+
+ MODEL FILES (models/, git-ignored)
+   Placed    : 2026-11-06
+
+   Vehicle detector, official Ultralytics release asset:
+     curl -L -o models/yolo26m.pt https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m.pt
+     SHA-256 401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7
+
+   OCR model, Hugging Face Awiros/anpr-ocr
+   (revision eadbc5ae4faa8284c8a547a60142fd555c3059ca):
+     mkdir -p models/awiros
+     for f in model.safetensors en_dict.txt LICENSE README.md requirements.txt test.py; do curl -L -o models/awiros/$f https://huggingface.co/Awiros/anpr-ocr/resolve/main/$f; done
+     SHA-256 of model.safetensors:
+     f9f1264e0c115a239ca6d6700a74ceffab17168b75dafc6c169c232012c68e47
+
+ DOCKER (already on the machine, not installed by this project)
+   Checked   : 2026-11-06
+   Versions  : Docker 29.9.3, Docker Compose v5.7.0
+   Notes     : Native engine inside Ubuntu, not Docker Desktop.
+               The WSL user is in the docker group, so no
+               sudo is needed.
+
+ BACKEND PACKAGES (checked only, not installed yet)
+   Checked   : 2026-11-06, by resolving without installing
+   Result    : FastAPI 0.162.0 resolves together with
+               NiceGUI 4.0.0, SQLAlchemy 2.1.8, Alembic 1.20.1
+               and psycopg 3.3.8, and leaves PyTorch
+               2.14.1+cu126 unchanged.
+
+   Install when the database phase starts:
+     uv add "fastapi==0.162.0" nicegui sqlalchemy alembic "psycopg[binary]"
 
 
 ══════════════════════════════════════════════════════════════

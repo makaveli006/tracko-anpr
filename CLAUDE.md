@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: scaffold only.** `src/tracko_anpr/__init__.py` holds a placeholder `main()`. None of the pipeline, API, database or dashboard exists yet, and no dependencies, tests or linter are configured.
+**Status: environments ready, no application logic yet.** Both Python environments are installed and see the GPU, Ruff and pytest are configured, the model files are in `models/`, and `src/tracko_anpr/config.py` holds the settings. None of the pipeline, API, database or dashboard exists yet.
+
+**The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
 The two specs are the source of truth — read them before designing or building anything:
 
@@ -37,12 +39,15 @@ Python is pinned to 3.12 (`.python-version`); the build backend is `uv_build` wi
 
 The backend must run on FastAPI 0.162.0 exactly (`uv add "fastapi==0.162.0"` when it is first added). NiceGUI is built on FastAPI and shares that install, so pick a NiceGUI version whose FastAPI requirement allows 0.162.0.
 
-Decisions made by the user (2026-11-06), none of it installed or configured yet:
+Decisions made by the user (2026-11-06):
 
 - **Database layer:** SQLAlchemy with Alembic migrations and the psycopg 3 driver.
 - **Versions:** apart from FastAPI (0.162.0) and PostgreSQL (18), take the latest stable release at install time and rely on `uv.lock` to lock it. PyTorch and PaddlePaddle are the exception: their versions are constrained by the GPU driver (see Open dependencies).
 - **Web app:** one process, with NiceGUI mounted on the FastAPI app. It must run as a single server process because NiceGUI keeps session state in memory. Splitting the dashboard and API into two services is listed in `ARCHITECTURE.md` as a future implementation; do not build it now, but keep dashboard code calling shared service functions so the split stays possible.
-- **Build order:** pipeline first. Get one video through detection, tracking, plate detection and OCR from the command line before any database, API or dashboard work. The very first step is vehicle detection plus tracking: install `torch==2.14.1+cu126` and Ultralytics in the main environment, run YOLO26m with TrackTrack on a short clip and write an annotated video.
+- **Build order:** pipeline first. Get one video through detection, tracking, plate detection and OCR from the command line before any database, API or dashboard work. The phases and their order are in `PLAN.md`. The OCR is smoke-tested before the plate detectors are compared, because "can the OCR read this crop" is how the plate detector gets chosen.
+- **Who runs what:** Claude runs installs and system commands itself (`uv add`, `docker compose`, model downloads) and logs them in `ARCHITECTURE.md`. The one exception is downloading the PaddleOCR source, which is handed to the user as a command. Anything needing `sudo` is handed over too; never reuse a password from an earlier conversation.
+- **Third-party weights:** never load a `.pt` from `pretrained-numberplate-weight/` in the main environment. They are scanned, then loaded only inside a Docker container with no network, and the chosen one is re-saved in a safe format before the application uses it.
+- **Accuracy:** show recognition coverage and confidence only, labelled as not being accuracy. Measuring real accuracy against a small hand-labelled set is a future implementation.
 - **Plate detector:** test the downloaded weights in `pretrained-numberplate-weight/` on the user's own clips first; fine-tune YOLO26s on the IURS-NPDS dataset (19,309 images) only if they miss plates.
 - **Job hand-off:** the `processing_jobs` table in PostgreSQL is the queue. FastAPI inserts a queued row, the worker polls and claims it, writes stage and progress back, and must reset jobs left at "processing" by a crash when it starts.
 - **Video input:** the pipeline takes MP4 only, at any resolution and frame rate; 1080p at 30 FPS is only the suggestion. Never hardcode 1920×1080 or 30: read both from each video and derive everything from them (timestamps, the tracker's lost-track buffer, chart buckets, box coordinates, the annotated output's size and frame rate). Clips in another container are converted to H.264 MP4 with FFmpeg beforehand, keeping their own resolution and frame rate. The source clips are in `videos/` (git-ignored): six 1080p MP4s at 29.97 to 60 FPS, plus `kochi.mp4` and `kozhikode.mp4`, which the user converted from the two 2K `.webm` files at 2560×1440 (`kochi.webm` has since been deleted). For long FFmpeg conversions the user prefers to be given the command and run it themselves; quick cuts they have asked Claude to run.
@@ -51,7 +56,7 @@ Decisions made by the user (2026-11-06), none of it installed or configured yet:
 - **Licence:** YOLO26 and weights trained from it are AGPL-3.0. Proceed with YOLO26 for the POC; the question is flagged in `ARCHITECTURE.md` to settle before production or customer use.
 - **Demo registry:** fictional records are generated from a share of the plates recognized in the demo videos, so both matches and non-matches appear.
 - **Dashboard:** the Overview has a video selector, and the five summary cards switch between the selected video and all videos. "Detections Over Time" counts new vehicles per 10-second bucket. Filled green backgrounds use dark green `#166522` with white text, not white on bright green. The header bell and profile icon are decorative: no login, no notifications.
-- **Code quality:** Ruff for both linting and formatting, pytest for tests. Once added as dev dependencies the commands are `uv run ruff check`, `uv run ruff format`, `uv run pytest`, and `uv run pytest path/to/test_file.py::test_name` for a single test.
+- **Code quality:** Ruff for both linting and formatting, pytest for tests. Both are installed as dev dependencies and configured in `pyproject.toml`; the commands are `uv run ruff check`, `uv run ruff format`, `uv run pytest`, and `uv run pytest path/to/test_file.py::test_name` for a single test.
 
 ## Planned architecture
 
@@ -69,7 +74,7 @@ One video flows through these stages inside a separate worker process, never ins
 10. Annotated H.264 MP4 render
 11. FastAPI results → NiceGUI dashboard
 
-Ultralytics has TrackTrack built in — do not look for a fork or write a custom integration. It was added on 2026-06-09 (PR #24371), is in the current release (8.4.203, checked 2026-11-06) and is the default tracker in the official docs (https://docs.ultralytics.com/modes/track/). Use it through the normal tracking call with `tracker="tracktrack.yaml"`; copy that file from `ultralytics/cfg/trackers/` to customise it. Its defaults: camera motion compensation on (`gmc_method: sparseOptFlow`), lost tracks kept 30 frames (`track_buffer`), ReID off (`with_reid: False`). Not yet installed or run in this repo.
+Ultralytics has TrackTrack built in — do not look for a fork or write a custom integration. It was added on 2026-06-09 (PR #24371), is in the current release (8.4.203, checked 2026-11-06) and is the default tracker in the official docs (https://docs.ultralytics.com/modes/track/). Use it through the normal tracking call with `tracker="tracktrack.yaml"`; copy that file from `ultralytics/cfg/trackers/` to customise it. Its defaults: camera motion compensation on (`gmc_method: sparseOptFlow`), lost tracks kept 30 frames (`track_buffer`), ReID off (`with_reid: False`). Its lost-track time is counted in frames with no frame-rate scaling, so it must be set per video. Installed with Ultralytics 8.4.203 but not yet run on a clip. Tracking also needs the `lap` package, which is in `pyproject.toml`. `tracko_anpr/__init__.py` sets `YOLO_AUTOINSTALL=False`, because Ultralytics otherwise installs missing packages behind uv's back and the next `uv sync` removes them; if Ultralytics reports a missing package, add it with `uv add`. For FP16, pass `quantize=16`; the older `half=True` still works in 8.4.203 but prints a deprecation warning on every call. A smoke test on 2026-11-06 ran YOLO26m with TrackTrack at input size 1536 on a 1080p clip at about 37 frames per second.
 
 Rules from the specs that are easy to break:
 
@@ -87,8 +92,8 @@ Rules from the specs that are easy to break:
 These are assumed by the specs but not yet confirmed or available:
 
 - No plate detector has been chosen. Untested third-party candidates are in `pretrained-numberplate-weight/` (see its README); none is a confirmed fit, so fine-tuning YOLO26s may still be needed.
-- `Awiros/anpr-ocr` on Hugging Face is public, ungated and Apache-2.0; `model.safetensors` (149 MB) downloads without login (checked 2026-11-06). It is not a pip-installable pipeline: its `test.py` builds the network from the PaddleOCR source tree (`ppocr`, cloned from GitHub) and loads the safetensors into it, so the project needs a pinned PaddleOCR checkout plus `paddlepaddle-gpu>=2.6.0`. Input is a plate crop resized to 48 px high (max 320 wide); output is uppercase text plus a CTC confidence. Accuracy figures are the publisher's own; not yet run here.
-- PyTorch and PaddlePaddle clash in one environment (resolution tested with `uv pip compile` on 2026-11-06, nothing installed):
+- `Awiros/anpr-ocr` on Hugging Face is public, ungated and Apache-2.0; `model.safetensors` (149 MB) downloads without login (checked 2026-11-06). It is not a pip-installable pipeline: its `test.py` builds the network from the PaddleOCR source tree (`ppocr`, cloned from GitHub) and loads the safetensors into it, so the project needs a pinned PaddleOCR checkout plus `paddlepaddle-gpu>=2.6.0`. Input is a plate crop resized to 48 px high (max 320 wide); output is uppercase text plus a CTC confidence. Accuracy figures are the publisher's own. The source is checked out at `ocr/vendor/PaddleOCR` (tag `v3.7.0`), and on 2026-11-06 the network it builds matched the weights exactly (545 of 545 tensors) on the GPU with the packages already in `ocr/pyproject.toml`. No plate image has been read yet. The source prints harmless `SyntaxWarning` lines on import, and PaddlePaddle prints a `libcuda.so` message that has not affected GPU use so far.
+- PyTorch and PaddlePaddle clash in one environment (resolution tested on 2026-11-06; both are now installed, each in its own environment):
   - The NVIDIA driver is 572.16, which reports CUDA 12.8. PyPI's default `torch` (2.15.0) is built against CUDA 13 libraries and probably needs a newer driver; the newest CUDA 12.6 build is `torch==2.14.1+cu126` from `https://download.pytorch.org/whl/cu126`.
   - GPU builds of PaddlePaddle 3.x come from Paddle's own index (`https://www.paddlepaddle.org.cn/packages/stable/cu126/`, latest 3.3.1), not PyPI. PyPI only has the old 2.6.2, which uv silently falls back to.
   - `torch==2.14.1+cu126` pins `nvidia-cudnn-cu12==9.10.2.21` and `paddlepaddle-gpu==3.3.1` pins `==9.5.1.17`, so uv cannot resolve them together.
@@ -96,7 +101,9 @@ These are assumed by the specs but not yet confirmed or available:
 
 ## Repository notes
 
-- The folder skeleton exists but holds no logic yet (created 2026-11-06). Main package `src/tracko_anpr/` has empty subpackages `api`, `dashboard` (`components`, `pages`), `db`, `worker` and `pipeline`. `models/` holds the weights the app loads and `storage/` holds uploads and generated files; both are git-ignored apart from `.gitkeep`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
-
-- `initial-images/` is git-ignored reference material.
+- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment) and empty subpackages `api`, `dashboard` (`components`, `pages`), `db`, `worker` and `pipeline`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
+- `models/` holds what the app loads and is git-ignored apart from `.gitkeep`: `yolo26m.pt` (official Ultralytics release) and `awiros/` (the OCR model, its dictionary and its reference `test.py`). Sources and checksums are recorded in `ocr/README.md`.
+- `storage/` holds uploads and generated files, also git-ignored apart from `.gitkeep`.
+- Commits are staged with `git add .`, so `.gitignore` is the only thing keeping large or secret files out. It covers `videos/`, model weights, `runs/` and `datasets/` (Ultralytics output), `.env`, and the vendored PaddleOCR source. Add a rule there before creating any new kind of generated file.
+- WSL sees 15 GB of the machine's 32 GB RAM (no `.wslconfig`). Two model processes, PostgreSQL and 2K frames share it; raising the limit is the user's change to make.
 - The folder is `DESIGN/` (uppercase); mind the case when working from WSL.

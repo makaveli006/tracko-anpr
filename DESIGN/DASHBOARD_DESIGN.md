@@ -425,7 +425,7 @@ Use a 16:9 video player.
 
 Requirements:
 
-- Original 1080p video quality
+- Original video quality, at the video's own resolution and frame rate
 - Play/pause
 - Video seek bar
 - Current playback timestamp

@@ -1,6 +1,20 @@
 # tracko-anpr
 
-Proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+Proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design and [PLAN.md](PLAN.md) for the build plan and progress.
+
+## Development
+
+Run these from the project root, in WSL:
+
+```bash
+uv run ruff check      # lint
+uv run ruff format     # format
+uv run pytest          # tests
+```
+
+Settings come from environment variables, with a `.env` file read first if present. Copy `.env.example` to `.env` to set them; `.env` is git-ignored. The defaults are in `src/tracko_anpr/config.py`.
+
+The model files and the PaddleOCR source code are not in git. Where to get them, and the exact versions used, are recorded in [ocr/README.md](ocr/README.md) and in the "System Setup" section of `ARCHITECTURE.md`.
 
 ## Setup
 
@@ -58,3 +72,14 @@ What to expect:
 - **A `libcuda.so ... cannot open shared object file` message:** it was printed on this machine, but the GPU check still passed. If the OCR model later fails to use the GPU, try `export LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH`.
 
 These packages are recorded in `ocr/pyproject.toml` and `ocr/uv.lock`. On a fresh clone, run `uv sync` inside `ocr/` to install the same versions.
+
+### PaddleOCR source code
+
+The Awiros OCR model is not a pip package: its network is built from PaddleOCR's own source code, so that code must be present on disk. It goes in `ocr/vendor/PaddleOCR`, which is git-ignored, pinned to version `v3.7.0`.
+
+```bash
+cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
+git clone --depth 1 --branch v3.7.0 https://github.com/PaddlePaddle/PaddleOCR.git ocr/vendor/PaddleOCR
+```
+
+The download is about 243 MB. The exact commit, and the model files that go with it, are recorded in [ocr/README.md](ocr/README.md).

@@ -42,16 +42,18 @@ Do not work around the hooks: no `--no-verify`, no unsetting `core.hooksPath`, a
 
 The hooks only act on this machine's clone. They do not stop someone pushing to `main` on GitHub from another clone; that needs a branch protection rule in the GitHub repository settings.
 
-## Handing over changes
+## Claude runs the whole sequence
 
-Before starting any implementation or change, Claude creates the work branch from `development` itself, without being asked:
+The user decided on 2026-11-06 that Claude always does the commit, merge and branch deletion itself, to save time. There is no hand-over of commands and no waiting for "U DO".
+
+Before starting any implementation or change, Claude creates the work branch from `development`:
 
 ```bash
 git checkout development
 git checkout -b feature/<short-name>      # or bug/<short-name>, docs/<short-name>
 ```
 
-That is the only git step Claude runs. Claude does not run `git add`, `git commit`, `git merge` or branch deletion. After the work is done, Claude gives the user the remaining commands, one per line and in order, ready to copy:
+When the work is done and verified, Claude runs these itself, in order, stopping at the first error:
 
 ```bash
 git add .
@@ -61,13 +63,15 @@ git merge feature/<short-name>
 git branch -d feature/<short-name>
 ```
 
-**"U DO":** when the user replies "U DO", Claude runs the commands it just handed over itself, in order, stopping at the first error, and reports the result. That permission covers only that set of commands; the next change goes back to handing the commands over.
+Then Claude reports what was committed and the state of `development`.
 
-Do not include `git push` in these commands. The work stays local: the user merges into `development` and deletes the work branch locally, then pushes the day's collected work themselves at the end of the day.
+Rules for that sequence:
 
-Always use `git add .` for staging, never a list of individual file paths. `.gitignore` is what keeps videos, model weights and generated files out of commits, so keep it up to date.
-
-Always fill in the real branch name and a real commit message; never leave placeholders.
+- **Check the branch first.** Before `git add .`, confirm the current branch is the work branch. If it is `development`, `main` or anything unexpected, stop and tell the user; do not commit.
+- **Check what is being staged.** `git add .` stages everything, so `.gitignore` is the only thing keeping videos, model weights, secrets and generated files out. Look at `git status` before committing; if something large or secret would go in, fix `.gitignore` first.
+- **Always `git add .`,** never a list of individual file paths.
+- **Never `git push`.** The work stays local; the user pushes the day's collected work themselves at the end of the day.
+- **Nothing beyond this sequence without being asked:** no amending or rewriting commits, no force operations, no work on `main`.
 
 ## Commit messages
 
