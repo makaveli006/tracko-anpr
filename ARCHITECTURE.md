@@ -17,7 +17,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Source          : Mobile-recorded Indian road traffic videos
  Camera          : Stationary roadside OR moving vehicle
- Resolution      : 1920 × 1080 (Full HD)
+ Resolution      : Any, read from each video
+                   (1920 × 1080 suggested)
  Frame Rate      : Any, read from each video
                    (30 FPS suggested)
  Video Codec     : H.264
@@ -30,15 +31,40 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  Accepted input  : MP4 only. The pipeline does not take
                    other formats.
 
-                   Any frame rate is accepted and is read
-                   from the video itself. 30 FPS is the
-                   suggestion; a 60 FPS video takes about
-                   twice as long to process.
+                   Any resolution and frame rate are accepted
+                   and are read from the video itself.
+                   1080p at 30 FPS is the suggestion. A
+                   60 FPS video takes about twice as long to
+                   process, and higher resolution is slower
+                   too but gives sharper plate crops.
 
-                   Source clips in another container or
-                   resolution (for example 2K WebM) are
-                   converted to 1080p H.264 MP4 with FFmpeg
-                   beforehand, keeping their own frame rate.
+                   Source clips in another container (for
+                   example WebM) are converted to H.264 MP4
+                   with FFmpeg beforehand, keeping their own
+                   resolution and frame rate:
+
+                     ffmpeg -i input.webm -c:v libx264 \
+                       -preset medium -crf 20 \
+                       -pix_fmt yuv420p -c:a aac -b:a 128k \
+                       -movflags +faststart output.mp4
+
+ Test clips      : Pipeline development uses 2-minute pieces
+                   of each video. Every video has its own
+                   folder, named after it:
+
+                     videos/clips/<video>/<video>_partNN.mp4
+
+                   The pieces are cut without re-encoding,
+                   so they keep the source quality. The full
+                   videos are kept for the final demo.
+
+                     ffmpeg -i <video>.mp4 -map 0:v:0 \
+                       -map 0:a:0? -c copy -f segment \
+                       -segment_time 120 -reset_timestamps 1 \
+                       -segment_start_number 1 \
+                       -segment_format_options \
+                       movflags=+faststart \
+                       clips/<video>/<video>_part%02d.mp4
 
 
                          │
@@ -105,7 +131,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • Encode annotated output video as H.264 MP4
 
  Important:
-   • Preserve original 1920 × 1080 frames
+   • Preserve the original full-resolution frames
    • Do not use resized inference frames for plate crops
 
                          │
@@ -167,7 +193,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 ══════════════════════════════════════════════════════════════
 
  Tool            : OpenCV
- Source          : Original 1920 × 1080 frame
+ Source          : Original full-resolution frame
 
  Process:
    • Obtain vehicle bounding box from YOLO26m
@@ -323,7 +349,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Tools           : OpenCV + FFmpeg
  Output          : H.264 MP4
- Resolution      : Original 1920 × 1080
+ Resolution      : Same as the input video
  Playback FPS    : Same as the input video
 
  Annotations:

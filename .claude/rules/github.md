@@ -61,6 +61,8 @@ git merge feature/<short-name>
 git branch -d feature/<short-name>
 ```
 
+**"U DO":** when the user replies "U DO", Claude runs the commands it just handed over itself, in order, stopping at the first error, and reports the result. That permission covers only that set of commands; the next change goes back to handing the commands over.
+
 Do not include `git push` in these commands. The work stays local: the user merges into `development` and deletes the work branch locally, then pushes the day's collected work themselves at the end of the day.
 
 Always use `git add .` for staging, never a list of individual file paths. `.gitignore` is what keeps videos, model weights and generated files out of commits, so keep it up to date.
