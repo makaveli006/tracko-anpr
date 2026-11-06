@@ -44,19 +44,28 @@ The hooks only act on this machine's clone. They do not stop someone pushing to 
 
 ## Handing over changes
 
-Claude does not run `git add`, `git commit`, `git merge` or branch deletion itself. After every implementation or change, Claude gives the user the commands to run, one per line and in order, ready to copy:
+Before starting any implementation or change, Claude creates the work branch from `development` itself, without being asked:
 
 ```bash
 git checkout development
 git checkout -b feature/<short-name>      # or bug/<short-name>, docs/<short-name>
-git add <the files that changed>
+```
+
+That is the only git step Claude runs. Claude does not run `git add`, `git commit`, `git merge` or branch deletion. After the work is done, Claude gives the user the remaining commands, one per line and in order, ready to copy:
+
+```bash
+git add .
 git commit -m "<commit message>"
 git checkout development
 git merge feature/<short-name>
 git branch -d feature/<short-name>
 ```
 
-Always fill in the real branch name, the real file paths and a real commit message; never leave placeholders. List the files explicitly rather than using `git add .`, unless every untracked and changed file belongs in the commit.
+Do not include `git push` in these commands. The work stays local: the user merges into `development` and deletes the work branch locally, then pushes the day's collected work themselves at the end of the day.
+
+Always use `git add .` for staging, never a list of individual file paths. `.gitignore` is what keeps videos, model weights and generated files out of commits, so keep it up to date.
+
+Always fill in the real branch name and a real commit message; never leave placeholders.
 
 ## Commit messages
 
