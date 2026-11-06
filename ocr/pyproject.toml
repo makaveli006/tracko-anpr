@@ -1,0 +1,17 @@
+[project]
+name = "anpr-ocr"
+version = "0.1.0"
+description = "Awiros-ANPR-OCR runner, kept in its own environment because PaddlePaddle and PyTorch need different cuDNN versions."
+readme = "README.md"
+authors = [
+    { name = "Subin Krishna K T", email = "subin@ontash.net" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+anpr-ocr = "anpr_ocr:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"

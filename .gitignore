@@ -1,0 +1,25 @@
+initial-images/
+videos/
+
+# Downloaded model weights (see pretrained-numberplate-weight/README.md for sources)
+pretrained-numberplate-weight/**/*.pt
+pretrained-numberplate-weight/**/*.onnx
+
+# Model weights used by the application
+models/*
+!models/.gitkeep
+
+# Uploaded and generated files
+storage/*/*
+!storage/*/.gitkeep
+
+# Pinned PaddleOCR source checkout for the OCR environment
+ocr/vendor/*
+!ocr/vendor/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
