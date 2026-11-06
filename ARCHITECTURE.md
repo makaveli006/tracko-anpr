@@ -745,6 +745,34 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
 
 ══════════════════════════════════════════════════════════════
+ MEASURED PERFORMANCE — DETECTION AND TRACKING (2026-11-06)
+══════════════════════════════════════════════════════════════
+
+ YOLO26m with TrackTrack, input size 1536, FP16, on full
+ 2-minute test clips. "Whole run" is tracking plus rendering
+ the annotated video; plate detection and OCR are not built
+ yet and will add to it.
+
+ Clip format         Tracking      Whole run    Whole run
+                     (frames/s)    (frames/s)   vs real time
+ ────────────────────────────────────────────────────────────
+ 1080p, 29.97 FPS    48            25           0.83x
+ 1080p, 60 FPS       50            28           0.47x
+ 2K, 30 FPS          31            16           0.52x
+ 2K, 59.94 FPS       35            18           0.28x
+
+ Memory at peak: about 350 MiB of GPU memory (PyTorch) and
+ 2 GB of RAM.
+
+ Every annotated video matched its input exactly in
+ resolution, frame rate and frame count.
+
+ Run it:
+   uv run tracko-anpr track videos/clips/<video>/<piece>.mp4
+══════════════════════════════════════════════════════════════
+
+
+══════════════════════════════════════════════════════════════
  CUDA AND GPU LIBRARY COMPATIBILITY (CHECKED 2026-11-06)
 ══════════════════════════════════════════════════════════════
 

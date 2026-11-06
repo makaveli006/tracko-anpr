@@ -7,7 +7,7 @@ Approved by the user on 2026-11-06. Phases are done one at a time; each starts o
 Tick a phase when it is complete and merged into `development`.
 
 - [x] Phase 1 — Guard rails and setup completion (done 2026-11-06)
-- [ ] Phase 2 — Vehicle detection and tracking
+- [x] Phase 2 — Vehicle detection and tracking (done 2026-11-06)
 - [ ] Phase 3 — OCR smoke test (go/no-go A)
 - [ ] Phase 4 — Plate detector comparison (go/no-go B; Phase 4b fine-tuning only if needed)
 - [ ] Phase 5 — OCR service

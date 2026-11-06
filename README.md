@@ -2,6 +2,26 @@
 
 Proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design and [PLAN.md](PLAN.md) for the build plan and progress.
 
+## Usage
+
+Run from the project root, in WSL.
+
+### Detect and track vehicles
+
+```bash
+uv run tracko-anpr track videos/clips/trafiic/trafiic_part01.mp4
+```
+
+This runs YOLO26m with the TrackTrack tracker over an MP4 and writes three files to `storage/processed/`:
+
+- `<name>_annotated.mp4` — the video with a box and a label such as `#T14 Motorcycle (0.63)` on every tracked vehicle, at the same resolution, frame rate and frame count as the input, with the original audio.
+- `<name>_detections.csv` — one row per vehicle per frame, with its box in original-frame pixels.
+- `<name>_tracks.json` — one summary per track, plus the settings used, timings, speed and memory.
+
+Options: `--max-seconds N` processes only the first N seconds; `--output-dir DIR` writes somewhere else.
+
+Only MP4 input is accepted. Resolution and frame rate are read from the video.
+
 ## Development
 
 Run these from the project root, in WSL:

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: environments ready, no application logic yet.** Both Python environments are installed and see the GPU, Ruff and pytest are configured, the model files are in `models/`, and `src/tracko_anpr/config.py` holds the settings. None of the pipeline, API, database or dashboard exists yet.
+**Status: Phases 1 and 2 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and vehicle detection and tracking works from the command line (`tracko-anpr track`). Plate detection, OCR, validation, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
 
 **The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
@@ -31,9 +31,12 @@ The database is PostgreSQL 18 (stable) in a Docker container inside WSL, using t
 
 ```bash
 uv sync                 # install the project and dependencies into .venv
-uv run tracko-anpr      # run the entry point (tracko_anpr:main)
 uv add <package>        # add a dependency (updates pyproject.toml and uv.lock)
+uv run tracko-anpr track <video.mp4>                  # detect and track vehicles; results in storage/processed/
+uv run tracko-anpr track <video.mp4> --max-seconds 10 # same, first 10 seconds only (quick check)
 ```
+
+A full 2-minute clip takes two and a half to seven minutes, so run those in the background; the first frame alone takes several seconds while the GPU starts up.
 
 Python is pinned to 3.12 (`.python-version`); the build backend is `uv_build` with a `src/` layout.
 
@@ -74,7 +77,16 @@ One video flows through these stages inside a separate worker process, never ins
 10. Annotated H.264 MP4 render
 11. FastAPI results → NiceGUI dashboard
 
-Ultralytics has TrackTrack built in — do not look for a fork or write a custom integration. It was added on 2026-06-09 (PR #24371), is in the current release (8.4.203, checked 2026-11-06) and is the default tracker in the official docs (https://docs.ultralytics.com/modes/track/). Use it through the normal tracking call with `tracker="tracktrack.yaml"`; copy that file from `ultralytics/cfg/trackers/` to customise it. Its defaults: camera motion compensation on (`gmc_method: sparseOptFlow`), lost tracks kept 30 frames (`track_buffer`), ReID off (`with_reid: False`). Its lost-track time is counted in frames with no frame-rate scaling, so it must be set per video. Installed with Ultralytics 8.4.203 but not yet run on a clip. Tracking also needs the `lap` package, which is in `pyproject.toml`. `tracko_anpr/__init__.py` sets `YOLO_AUTOINSTALL=False`, because Ultralytics otherwise installs missing packages behind uv's back and the next `uv sync` removes them; if Ultralytics reports a missing package, add it with `uv add`. For FP16, pass `quantize=16`; the older `half=True` still works in 8.4.203 but prints a deprecation warning on every call. A smoke test on 2026-11-06 ran YOLO26m with TrackTrack at input size 1536 on a 1080p clip at about 37 frames per second.
+Ultralytics has TrackTrack built in — do not look for a fork or write a custom integration. It was added on 2026-06-09 (PR #24371), is in the current release (8.4.203, checked 2026-11-06) and is the default tracker in the official docs (https://docs.ultralytics.com/modes/track/). Use it through the normal tracking call with `tracker="tracktrack.yaml"`; copy that file from `ultralytics/cfg/trackers/` to customise it. Its defaults: camera motion compensation on (`gmc_method: sparseOptFlow`), lost tracks kept 30 frames (`track_buffer`), ReID off (`with_reid: False`). Its lost-track time is counted in frames with no frame-rate scaling, so it is set per video (`lost_track_buffer` in `pipeline/tracking.py`). Tracking also needs the `lap` package, which is in `pyproject.toml`. `tracko_anpr/__init__.py` sets `YOLO_AUTOINSTALL=False`, because Ultralytics otherwise installs missing packages behind uv's back and the next `uv sync` removes them; if Ultralytics reports a missing package, add it with `uv add`. For FP16, pass `quantize=16`; the older `half=True` still works in 8.4.203 but prints a deprecation warning on every call. Measured on 2026-11-06 over full 2-minute clips at input size 1536, FP16: detection and tracking run at about 48 frames per second on 1080p and 30 to 35 on 2K; with rendering, a whole run manages about 25 frames per second on 1080p and 16 to 18 on 2K. Peak memory was 350 MiB of GPU (PyTorch) and 2 GB of RAM.
+
+How the pipeline code is organised (`src/tracko_anpr/pipeline/`):
+
+- `video.py` reads a video's properties with ffprobe, yields frames with OpenCV, and writes H.264 MP4 by piping frames to FFmpeg (`FFmpegWriter`). Output goes to a `.part.mp4` name and is renamed only on success. Do not add `-shortest`: the clips' audio is a few milliseconds shorter than the video, and it cut frames off the end.
+- `tracking.py` wraps YOLO26m and TrackTrack (`VehicleTracker`), runs the tracking pass (`track_video`) and keeps every frame's boxes in memory. `TrackRegistry` settles each track on one class by confidence-weighted vote.
+- `annotate.py` draws boxes and labels and renders the annotated video as a second pass over the video, after tracking, so labels use what is known about the whole track. Later phases add plate boxes and text to this same renderer.
+- `results.py` writes the per-frame detections CSV and the per-track JSON.
+
+Passes are sequential on purpose (track, then render), matching the seven-stage timeline in the design. Anything that needs PyTorch is imported inside the function that uses it, so the tests run without loading a model.
 
 Rules from the specs that are easy to break:
 
@@ -101,7 +113,7 @@ These are assumed by the specs but not yet confirmed or available:
 
 ## Repository notes
 
-- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment) and empty subpackages `api`, `dashboard` (`components`, `pages`), `db`, `worker` and `pipeline`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
+- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command), the `pipeline` package described above, and still-empty subpackages `api`, `dashboard` (`components`, `pages`), `db` and `worker`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
 - `models/` holds what the app loads and is git-ignored apart from `.gitkeep`: `yolo26m.pt` (official Ultralytics release) and `awiros/` (the OCR model, its dictionary and its reference `test.py`). Sources and checksums are recorded in `ocr/README.md`.
 - `storage/` holds uploads and generated files, also git-ignored apart from `.gitkeep`.
 - Commits are staged with `git add .`, so `.gitignore` is the only thing keeping large or secret files out. It covers `videos/`, model weights, `runs/` and `datasets/` (Ultralytics output), `.env`, and the vendored PaddleOCR source. Add a rule there before creating any new kind of generated file.

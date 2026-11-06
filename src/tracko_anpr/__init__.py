@@ -9,4 +9,7 @@ os.environ.setdefault("YOLO_AUTOINSTALL", "False")
 
 
 def main() -> None:
-    print("Hello from tracko-anpr!")
+    """Entry point for the `tracko-anpr` command."""
+    from tracko_anpr.cli import main as cli_main
+
+    raise SystemExit(cli_main())
