@@ -33,7 +33,7 @@ The user's 28-step list is the backbone. I re-read every Markdown file against i
 2. I implement the phase and run installs and system commands myself (`uv add`, `docker compose`, model downloads). **Exception: the PaddleOCR source download is handed to the user as a command.** Anything needing `sudo` is handed over too.
 3. I verify: `uv run ruff check`, `uv run pytest`, and a real run on test clips. Failures are reported as failures.
 4. I update the docs the phase touched (`ARCHITECTURE.md` setup log, `CLAUDE.md` status, `README.md`).
-5. I hand over the git commands (`git add .` → commit → `git checkout development` → merge → delete branch; no push), and run them only on "U DO". Before committing I check the branch is the work branch and stop if it is not.
+5. I run the git sequence myself (`git add .` → commit → `git checkout development` → merge → delete branch; no push), per the user's decision of 2026-11-06. Before committing I check the branch is the work branch and stop if it is not.
 6. **I report "Phase N of 14 complete — M phases left", list them, and stop.** The next phase starts only on the user's go-ahead.
 
 ## What the 28 steps left out
