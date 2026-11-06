@@ -1,5 +1,9 @@
 # Plate detector comparison — results (2026-11-06)
 
+## Decision
+
+**The user chose `sentry-26s` on 2026-11-06, with no fine-tuning.** It was then re-saved as plain data inside the sandbox and verified on the GPU; see "After the decision" at the end.
+
 ## Summary
 
 The five leading candidates are equivalent on this footage: each led to a confident reading on 87 to 92 of 476 vehicles. What limits the result is not which detector is used but how large the plate is in the picture.
@@ -86,6 +90,16 @@ Its weaknesses, from `pretrained-numberplate-weight/README.md`: it was trained f
 ## Is fine-tuning (Phase 4b) needed?
 
 Not on this evidence. A better detector cannot raise the result much: the leaders already put a box on nearly every vehicle that anyone could read, and what stops the rest is plate size and visibility. Fine-tuning would be worth revisiting only if a hand-labelled check later shows plates being missed.
+
+## After the decision
+
+- **Re-saved safely.** `sandbox/export_safe.py` loaded `ayannotfound__Sentry/best.pt` inside the no-network container and wrote three plain files: `sentry-26s.safetensors` (the numbers), `sentry-26s.yaml` (the layout) and `sentry-26s.json` (source, checksums, class names, training settings). They are in `models/plate/`.
+- **Identical inside the sandbox.** The network rebuilt from those files gave exactly the same output as the original (difference 0).
+- **Same plates on the GPU.** `verify_safe_model.py` loaded the plain files in the main environment and ran all 917 crops on the GPU at FP16. It found a plate in the same place on all 482 crops where the sandbox run did, found none on 434, and differed on 1 crop whose confidence sat on the threshold. Largest confidence difference: 0.005.
+- **Speed:** 4.8 ms per vehicle crop on the GPU.
+- **The application refuses `.pt` files** for the plate detector (`pipeline/plates.py`).
+
+One trap found on the way: given a layout file path, Ultralytics guesses the model's size (n, s, m…) from the file name, and silently built a network of the wrong size. The layout is therefore always passed as a dictionary carrying its own `scale`.
 
 ## Files
 

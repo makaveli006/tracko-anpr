@@ -2,7 +2,9 @@
 
 Openly available plate-detector weights found by web research on 2026-11-06, downloaded as-is from the links below. Each model sits in its own subfolder named `<owner>__<repo>`.
 
-None of these has been run or evaluated here. The base model of each file was confirmed from the metadata embedded in the file; accuracy figures on the source pages are the authors' own claims, and "Indian" rests on each repo's description and dataset names.
+**Update, 2026-11-06:** all of these were compared on this project's own footage, inside a no-network sandbox. The one chosen is `ayannotfound__Sentry/best.pt` ("sentry-26s"). The application does not load that file; it loads a copy re-saved as plain data in `models/plate/`. Results and method: [../tools/plate_detector_eval/RESULTS.md](../tools/plate_detector_eval/RESULTS.md). The files in this folder are kept only as the source for that comparison.
+
+The notes below were written at download time, when none of these had been run or evaluated here. The base model of each file was confirmed from the metadata embedded in the file; accuracy figures on the source pages are the authors' own claims, and "Indian" rests on each repo's description and dataset names.
 
 ## YOLO26 — trained on Indian plates
 

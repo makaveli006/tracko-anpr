@@ -241,6 +241,28 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    2. Fine-tune YOLO26s on the IURS-NPDS dataset
       (19,309 images) only if they miss plates.
 
+ Chosen (2026-11-06):
+   sentry-26s, from the repository ayannotfound/Sentry.
+   A YOLO26s at input size 640, made for vehicle crops.
+
+   14 candidates were compared on 917 vehicle crops from all
+   eight test videos. The five leaders were equivalent; this
+   one matches the specification above and agreed with the
+   others most. Fine-tuning was not needed: what limits the
+   result is how large the plate is in the picture, not the
+   detector. Full results:
+   tools/plate_detector_eval/RESULTS.md
+
+ Safe loading:
+   The original is a .pt file, which can run code when
+   loaded. It was scanned, loaded only inside a Docker
+   container with no network, and re-saved there as plain
+   data (safetensors numbers, a text layout, a details file).
+   The application loads only that copy, from models/plate/,
+   and refuses a .pt file.
+
+ Measured: 4.8 ms per vehicle crop on the GPU at FP16.
+
                          │
                          ▼
 
@@ -662,6 +684,36 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      for f in model.safetensors en_dict.txt LICENSE README.md requirements.txt test.py; do curl -L -o models/awiros/$f https://huggingface.co/Awiros/anpr-ocr/resolve/main/$f; done
      SHA-256 of model.safetensors:
      f9f1264e0c115a239ca6d6700a74ceffab17168b75dafc6c169c232012c68e47
+
+ PLATE DETECTOR MODEL (models/plate/, git-ignored)
+   Placed    : 2026-11-06
+   Source    : pretrained-numberplate-weight/
+               ayannotfound__Sentry/best.pt
+               (https://github.com/ayannotfound/Sentry)
+   SHA-256 of that source file:
+     13f5aef6dfbeb294593726fb0d714d85bea642cb43e622eb3dcccc846e98ea0d
+   SHA-256 of models/plate/sentry-26s.safetensors:
+     7002e81e07ee53a5fd709d7b88b0af44f27b46dd3ee59919ec011385913b4d7b
+
+   Made by re-saving the source file as plain data inside the
+   no-network sandbox (run from the repository root, in WSL):
+
+     docker build -t tracko-plate-sandbox tools/plate_detector_eval/sandbox
+     mkdir -p storage/processed/phase4_export models/plate
+     docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 10g -v "$PWD/pretrained-numberplate-weight:/weights:ro" -v "$PWD/tools/plate_detector_eval/sandbox:/work:ro" -v "$PWD/storage/processed/phase4_export:/out:rw" tracko-plate-sandbox python /work/export_safe.py ayannotfound__Sentry/best.pt sentry-26s
+     cp storage/processed/phase4_export/sentry-26s.* models/plate/
+
+   Checked: inside the sandbox, the network rebuilt from the
+   plain files gave output identical to the original. In the
+   main environment on the GPU it found the same plates as the
+   original did in the sandbox on 916 of 917 crops; the one
+   difference sat on the confidence threshold.
+
+   Check it again:
+     uv run python tools/plate_detector_eval/verify_safe_model.py sentry-26s
+
+   Also added to the main environment for this: safetensors
+     uv add safetensors
 
  DOCKER (already on the machine, not installed by this project)
    Checked   : 2026-11-06

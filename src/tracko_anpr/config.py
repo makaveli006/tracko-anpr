@@ -54,6 +54,11 @@ class Settings:
     vehicle_confidence: float
     tracker_lost_seconds: float
 
+    # Number plate detection (ARCHITECTURE.md section 8); a safely re-saved .safetensors model
+    plate_weights: Path
+    plate_image_size: int
+    plate_confidence: float
+
     # Number plate reading (ARCHITECTURE.md section 9); runs in the separate `ocr/` environment
     ocr_project: Path
     ocr_model: Path
@@ -114,6 +119,9 @@ def load_settings(root: Path | None = None, environ: dict[str, str] | None = Non
         vehicle_image_size=int(env.get("TRACKO_VEHICLE_IMAGE_SIZE", "1536")),
         vehicle_confidence=float(env.get("TRACKO_VEHICLE_CONFIDENCE", "0.1")),
         tracker_lost_seconds=float(env.get("TRACKO_TRACKER_LOST_SECONDS", "1.0")),
+        plate_weights=Path(env.get("TRACKO_PLATE_WEIGHTS", models / "plate" / "sentry-26s.safetensors")),
+        plate_image_size=int(env.get("TRACKO_PLATE_IMAGE_SIZE", "640")),
+        plate_confidence=float(env.get("TRACKO_PLATE_CONFIDENCE", "0.25")),
         ocr_project=root / "ocr",
         ocr_model=Path(env.get("TRACKO_OCR_MODEL", models / "awiros" / "model.safetensors")),
         ocr_dictionary=Path(env.get("TRACKO_OCR_DICTIONARY", models / "awiros" / "en_dict.txt")),

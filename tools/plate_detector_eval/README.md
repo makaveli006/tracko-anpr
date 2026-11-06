@@ -47,6 +47,25 @@ uv run python tools/plate_detector_eval/score.py crops
 uv run python tools/plate_detector_eval/score.py report
 ```
 
+## After a candidate is chosen
+
+```bash
+# 7. Re-save the chosen file as plain data, inside the sandbox.
+mkdir -p storage/processed/phase4_export models/plate
+docker run --rm --network none --read-only --tmpfs /tmp:rw,size=2g \
+  --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 10g \
+  -v "$PWD/pretrained-numberplate-weight:/weights:ro" \
+  -v "$PWD/tools/plate_detector_eval/sandbox:/work:ro" \
+  -v "$PWD/storage/processed/phase4_export:/out:rw" \
+  tracko-plate-sandbox python /work/export_safe.py ayannotfound__Sentry/best.pt sentry-26s
+cp storage/processed/phase4_export/sentry-26s.* models/plate/
+
+# 8. Confirm the plain files, loaded on the GPU in the main environment, find the same plates.
+uv run python tools/plate_detector_eval/verify_safe_model.py sentry-26s
+```
+
+The export checks itself: it rebuilds the network from the plain files and fails unless the output matches the original.
+
 ## How candidates are judged
 
 There is no hand-labelled ground truth, so nothing here is an accuracy figure. Candidates are compared on what matters downstream:

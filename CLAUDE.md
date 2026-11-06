@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: Phases 1 to 3 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, vehicle detection and tracking works from the command line (`tracko-anpr track`), and the plate reader works on a folder of plate crops (`anpr-ocr read`, inside `ocr/`). No plate detector has been chosen, and the OCR service, validation, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
+**Status: Phases 1 to 4 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, vehicle detection and tracking works from the command line (`tracko-anpr track`), the plate detector is chosen and loadable (`PlateDetector`), and the plate reader works on a folder of plate crops (`anpr-ocr read`, inside `ocr/`). The three parts are not yet joined: the OCR service, validation, the full pipeline, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
 
 **The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
@@ -110,7 +110,9 @@ The plate reader (`ocr/src/anpr_ocr/recognizer.py`) deliberately departs from Aw
 Plate detector comparison (Phase 4, run 2026-11-06; full write-up in `tools/plate_detector_eval/RESULTS.md`):
 
 - All 14 candidates were scanned without loading (clean) and then run only inside the `tracko-plate-sandbox` Docker image with `--network none`. The tools and the exact commands are in `tools/plate_detector_eval/`.
-- On 917 crops of 476 vehicles from all eight videos, the five leading candidates are equivalent: each led to a confident plate reading on 87 to 92 vehicles. Recommended: `sentry-26s` (`ayannotfound__Sentry/best.pt`, YOLO26s at 640, made for vehicle crops). **The user has not chosen yet (gate B); do not treat it as decided, and do not load any candidate in the main environment until the chosen one has been re-saved in a safe format.**
+- On 917 crops of 476 vehicles from all eight videos, the five leading candidates are equivalent: each led to a confident plate reading on 87 to 92 vehicles. **The user chose `sentry-26s`** (`ayannotfound__Sentry/best.pt`, YOLO26s at 640, made for vehicle crops), with no fine-tuning.
+- The application loads only the safely re-saved copy in `models/plate/` (`sentry-26s.safetensors` + `.yaml` + `.json`), through `PlateDetector` in `pipeline/plates.py`, which refuses a `.pt` file. On the GPU at FP16 it matched the original's sandbox detections on 916 of 917 crops and takes 4.8 ms per vehicle crop. Never load anything from `pretrained-numberplate-weight/` in the main environment.
+- `PlateDetector` rebuilds the network from the saved layout and passes that layout to Ultralytics as a dictionary. Given a file path instead, Ultralytics guesses the model size from the file name and silently builds the wrong size; keep it a dictionary.
 - Reading, not finding, is the limit: some candidate drew a box on 443 of 476 vehicles but only 108 were ever read. Boxes under 60 px wide are almost never read. The same footage read twice as many vehicles at 2K as at 1080p.
 - Most tracked vehicles never show a readable plate (side views, cut off by the frame edge), so low coverage on dashcam footage is expected, not a bug.
 - The camera car's own dashboard and bonnet get tracked as a vehicle in some videos (`ooty`, `truck`). Later phases must exclude it.
@@ -133,7 +135,7 @@ Rules from the specs that are easy to break:
 
 These are assumed by the specs but not yet confirmed or available:
 
-- No plate detector has been chosen. Untested third-party candidates are in `pretrained-numberplate-weight/` (see its README); none is a confirmed fit, so fine-tuning YOLO26s may still be needed.
+- The plate detector is `sentry-26s`, chosen by comparison (see the Phase 4 notes above). Its weaknesses are known and accepted for the POC: 10 epochs of training on mixed data, and no licence file in its repository. Fine-tuning our own YOLO26s on IURS-NPDS was judged unnecessary on the evidence and is not planned.
 - `Awiros/anpr-ocr` on Hugging Face is public, ungated and Apache-2.0; `model.safetensors` (149 MB) downloads without login (checked 2026-11-06). It is not a pip-installable pipeline: its `test.py` builds the network from the PaddleOCR source tree (`ppocr`, cloned from GitHub) and loads the safetensors into it, so the project needs a pinned PaddleOCR checkout plus `paddlepaddle-gpu>=2.6.0`. Input is a plate crop resized to 48 px high (max 320 wide); output is uppercase text plus a CTC confidence. Accuracy figures are the publisher's own. The source is checked out at `ocr/vendor/PaddleOCR` (tag `v3.7.0`), and on 2026-11-06 the network it builds matched the weights exactly (545 of 545 tensors) on the GPU with the packages already in `ocr/pyproject.toml`. Plate crops are now read correctly (see the reader notes under "Planned architecture"). The source prints harmless `SyntaxWarning` lines on import, and PaddlePaddle prints a `libcuda.so` message that has not affected GPU use so far.
 - PyTorch and PaddlePaddle clash in one environment (resolution tested on 2026-11-06; both are now installed, each in its own environment):
   - The NVIDIA driver is 572.16, which reports CUDA 12.8. PyPI's default `torch` (2.15.0) is built against CUDA 13 libraries and probably needs a newer driver; the newest CUDA 12.6 build is `torch==2.14.1+cu126` from `https://download.pytorch.org/whl/cu126`.
@@ -144,7 +146,7 @@ These are assumed by the specs but not yet confirmed or available:
 ## Repository notes
 
 - Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command), the `pipeline` package described above, and still-empty subpackages `api`, `dashboard` (`components`, `pages`), `db` and `worker`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
-- `models/` holds what the app loads and is git-ignored apart from `.gitkeep`: `yolo26m.pt` (official Ultralytics release) and `awiros/` (the OCR model, its dictionary and its reference `test.py`). Sources and checksums are recorded in `ocr/README.md`.
+- `models/` holds what the app loads and is git-ignored apart from `.gitkeep`: `yolo26m.pt` (official Ultralytics release), `plate/` (the safely re-saved plate detector) and `awiros/` (the OCR model, its dictionary and its reference `test.py`). Sources and checksums are recorded in `ocr/README.md`.
 - `storage/` holds uploads and generated files, also git-ignored apart from `.gitkeep`.
 - Commits are staged with `git add .`, so `.gitignore` is the only thing keeping large or secret files out. It covers `videos/`, model weights, `runs/` and `datasets/` (Ultralytics output), `.env`, and the vendored PaddleOCR source. Add a rule there before creating any new kind of generated file.
 - WSL sees 15 GB of the machine's 32 GB RAM (no `.wslconfig`). Two model processes, PostgreSQL and 2K frames share it; raising the limit is the user's change to make.
