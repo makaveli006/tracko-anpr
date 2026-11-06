@@ -520,6 +520,11 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    for one or two clips and measure the pipeline against
    them.
 
+   A fallback plate reader. The Awiros model passed its test
+   on this project's plates, so it is the only reader for
+   now. Later: add the stock PP-OCRv5 model as a second
+   reader to switch to if Awiros ever proves unsuitable.
+
  OPEN ITEM — LICENCE:
    Ultralytics YOLO26, and any weights trained from it, are
    AGPL-3.0. Company use may need an Ultralytics Enterprise

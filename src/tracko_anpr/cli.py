@@ -84,21 +84,25 @@ def _run_track(args: argparse.Namespace) -> int:
     if run.frame_count == 0:
         raise VideoError(f"No frames could be read from {info.path.name}.")
 
-    print("Rendering the annotated video")
-    render = render_annotated_video(
-        info, run.frames, run.registry.class_names(), video_out, _progress_printer("render")
-    )
-    total_seconds = time.perf_counter() - started
-
     timings = {
         "tracking_decode_s": round(run.decode_seconds, 2),
         "tracking_detect_track_s": round(run.track_seconds, 2),
         "tracking_warmup_s": round(run.warmup_seconds, 2),
-        "render_decode_s": round(render.decode_seconds, 2),
-        "render_draw_s": round(render.draw_seconds, 2),
-        "render_encode_s": round(render.encode_seconds, 2),
-        "total_s": round(total_seconds, 2),
     }
+    rendered_frames = 0
+    if not args.no_video:
+        print("Rendering the annotated video")
+        render = render_annotated_video(
+            info, run.frames, run.registry.class_names(), video_out, _progress_printer("render")
+        )
+        rendered_frames = render.frame_count
+        timings |= {
+            "render_decode_s": round(render.decode_seconds, 2),
+            "render_draw_s": round(render.draw_seconds, 2),
+            "render_encode_s": round(render.encode_seconds, 2),
+        }
+    total_seconds = time.perf_counter() - started
+    timings["total_s"] = round(total_seconds, 2)
     speed = {
         "detect_track_fps": round(run.steady_fps, 1),  # after the first frame, which includes GPU start-up
         "overall_fps": round(run.frame_count / total_seconds, 1) if total_seconds else 0.0,
@@ -113,11 +117,11 @@ def _run_track(args: argparse.Namespace) -> int:
 
     counts = run.registry.counts_by_class()
     print(f"Done in {total_seconds:.1f} s ({speed['times_real_time']}x real time)")
-    print(f"  Frames: {run.frame_count} tracked, {render.frame_count} rendered")
+    print(f"  Frames: {run.frame_count} tracked, {rendered_frames} rendered")
     print(f"  Tracks: {len(run.registry.tracks)} ({', '.join(f'{name} {count}' for name, count in counts.items())})")
     print(f"  Speed: detection and tracking {speed['detect_track_fps']} frames/s, overall {speed['overall_fps']}")
     print(f"  Memory: GPU (PyTorch) {memory['gpu_pytorch_peak_mib']} MiB, RAM {memory['ram_peak_mib']} MiB")
-    print(f"  Annotated video: {video_out}")
+    print(f"  Annotated video: {video_out if not args.no_video else '(not rendered)'}")
     print(f"  Detections:      {csv_out}")
     print(f"  Track summary:   {json_out}")
     return 0
@@ -135,6 +139,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir", type=Path, default=None, help="Where to write results (default: storage/processed)."
     )
     track.add_argument("--max-seconds", type=float, default=None, help="Only process the first N seconds.")
+    track.add_argument(
+        "--no-video", action="store_true", help="Skip the annotated video; write only the detections and tracks."
+    )
     track.set_defaults(handler=_run_track)
     return parser
 

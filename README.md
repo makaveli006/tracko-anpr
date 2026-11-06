@@ -18,7 +18,7 @@ This runs YOLO26m with the TrackTrack tracker over an MP4 and writes three files
 - `<name>_detections.csv` — one row per vehicle per frame, with its box in original-frame pixels.
 - `<name>_tracks.json` — one summary per track, plus the settings used, timings, speed and memory.
 
-Options: `--max-seconds N` processes only the first N seconds; `--output-dir DIR` writes somewhere else.
+Options: `--max-seconds N` processes only the first N seconds; `--no-video` skips the annotated video; `--output-dir DIR` writes somewhere else.
 
 Only MP4 input is accepted. Resolution and frame rate are read from the video.
 

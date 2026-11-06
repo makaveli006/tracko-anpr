@@ -8,8 +8,8 @@ Tick a phase when it is complete and merged into `development`.
 
 - [x] Phase 1 — Guard rails and setup completion (done 2026-11-06)
 - [x] Phase 2 — Vehicle detection and tracking (done 2026-11-06)
-- [x] Phase 3 — OCR smoke test (done 2026-11-06; gate A: the reader works on our plates, awaiting the user's go)
-- [ ] Phase 4 — Plate detector comparison (go/no-go B; Phase 4b fine-tuning only if needed)
+- [x] Phase 3 — OCR smoke test (done 2026-11-06; gate A: go with Awiros, a fallback reader is deferred to later)
+- [ ] Phase 4 — Plate detector comparison (comparison done 2026-11-06, see `tools/plate_detector_eval/RESULTS.md`; gate B awaits the user's choice, then the chosen model is re-saved in a safe format)
 - [ ] Phase 5 — OCR service
 - [ ] Phase 6 — Validation, full pipeline, final video
 - [ ] Phase 7 — Acceptance and freeze (go/no-go C)

@@ -34,6 +34,7 @@ uv sync                 # install the project and dependencies into .venv
 uv add <package>        # add a dependency (updates pyproject.toml and uv.lock)
 uv run tracko-anpr track <video.mp4>                  # detect and track vehicles; results in storage/processed/
 uv run tracko-anpr track <video.mp4> --max-seconds 10 # same, first 10 seconds only (quick check)
+uv run tracko-anpr track <video.mp4> --no-video       # detections and tracks only, no annotated video (faster)
 ```
 
 A full 2-minute clip takes two and a half to seven minutes, so run those in the background; the first frame alone takes several seconds while the GPU starts up.
@@ -105,6 +106,15 @@ The plate reader (`ocr/src/anpr_ocr/recognizer.py`) deliberately departs from Aw
 - Confidence is not correctness. Good readings sit near 0.92, but on non-plates the attention decoder still writes a plausible plate number at about 0.2 to 0.3, and one Kerala plate was read as `DL...` at 0.86. Validation must apply a confidence threshold and vote across frames.
 - Plate width decides success: under 60 px only about 12% of crops gave a confident plate-shaped reading, at 150 px and over about 68%. Prefer the frames where a vehicle is largest.
 - Reading takes about 10 ms per plate after about 15 s of model loading, so keep one recognizer alive.
+
+Plate detector comparison (Phase 4, run 2026-11-06; full write-up in `tools/plate_detector_eval/RESULTS.md`):
+
+- All 14 candidates were scanned without loading (clean) and then run only inside the `tracko-plate-sandbox` Docker image with `--network none`. The tools and the exact commands are in `tools/plate_detector_eval/`.
+- On 917 crops of 476 vehicles from all eight videos, the five leading candidates are equivalent: each led to a confident plate reading on 87 to 92 vehicles. Recommended: `sentry-26s` (`ayannotfound__Sentry/best.pt`, YOLO26s at 640, made for vehicle crops). **The user has not chosen yet (gate B); do not treat it as decided, and do not load any candidate in the main environment until the chosen one has been re-saved in a safe format.**
+- Reading, not finding, is the limit: some candidate drew a box on 443 of 476 vehicles but only 108 were ever read. Boxes under 60 px wide are almost never read. The same footage read twice as many vehicles at 2K as at 1080p.
+- Most tracked vehicles never show a readable plate (side views, cut off by the frame edge), so low coverage on dashcam footage is expected, not a bug.
+- The camera car's own dashboard and bonnet get tracked as a vehicle in some videos (`ooty`, `truck`). Later phases must exclude it.
+- `pipeline/cropping.py` holds `crop_region` (copies original pixels, never resizes) and `best_frames` (the frames where a track's box is largest and not cut off). Use `best_frames` to decide where to look for plates.
 
 Passes are sequential on purpose (track, then render), matching the seven-stage timeline in the design. Anything that needs PyTorch is imported inside the function that uses it, so the tests run without loading a model.
 
