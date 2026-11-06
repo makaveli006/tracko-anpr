@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: Phases 1 to 5 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and the three model stages each work: vehicle detection and tracking (`tracko-anpr track`), plate detection (`PlateDetector`), and plate reading, which the main program reaches through a service (`OcrClient`, `tracko-anpr read-plates`). They are not yet joined into one pipeline: validation, the full pipeline run, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
+**Status: Phases 1 to 6 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and one command runs a video through the whole pipeline from the command line (`tracko-anpr process`): vehicle detection and tracking, plate detection, plate reading through the reader service, validation across frames, and the annotated video. Results are files under `storage/`. The acceptance run and freeze (Phase 7), the database, the worker, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
 
 **The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
@@ -32,13 +32,17 @@ The database is PostgreSQL 18 (stable) in a Docker container inside WSL, using t
 ```bash
 uv sync                 # install the project and dependencies into .venv
 uv add <package>        # add a dependency (updates pyproject.toml and uv.lock)
-uv run tracko-anpr track <video.mp4>                  # detect and track vehicles; results in storage/processed/
+uv run tracko-anpr process <video.mp4>                # the whole pipeline; results in storage/processed/<name>/
+uv run tracko-anpr process <video.mp4> --max-seconds 20 --name smoke   # quick end-to-end check
+uv run tracko-anpr track <video.mp4>                  # detect and track vehicles only; results in storage/processed/
 uv run tracko-anpr track <video.mp4> --max-seconds 10 # same, first 10 seconds only (quick check)
 uv run tracko-anpr track <video.mp4> --no-video       # detections and tracks only, no annotated video (faster)
 uv run tracko-anpr read-plates <folder>               # read plate crops through the reader service (full round trip)
 ```
 
-A full 2-minute clip takes two and a half to seven minutes, so run those in the background; the first frame alone takes several seconds while the GPU starts up.
+`track` on a full 2-minute clip takes two and a half to seven minutes and `process` takes six to ten (measured on 2026-11-06: 372 to 429 s for 1080p at 60 FPS, 484 to 586 s for 2K at 59.94 FPS), so run those in the background; the first frame alone takes several seconds while the GPU starts up. More than half of the rendering time in `process` goes on finding each plate again in every frame to outline it.
+
+Run git with Windows git (PowerShell or Git Bash), not inside WSL. WSL's git reports about 50 untouched files as modified, and `git add .` from there would stage them all.
 
 The OCR project has its own environment, so its commands run from inside `ocr/` (with the main environment active, uv prints a harmless `VIRTUAL_ENV` warning):
 
@@ -95,8 +99,20 @@ How the pipeline code is organised (`src/tracko_anpr/pipeline/`):
 
 - `video.py` reads a video's properties with ffprobe, yields frames with OpenCV, and writes H.264 MP4 by piping frames to FFmpeg (`FFmpegWriter`). Output goes to a `.part.mp4` name and is renamed only on success. Do not add `-shortest`: the clips' audio is a few milliseconds shorter than the video, and it cut frames off the end.
 - `tracking.py` wraps YOLO26m and TrackTrack (`VehicleTracker`), runs the tracking pass (`track_video`) and keeps every frame's boxes in memory. `TrackRegistry` settles each track on one class by confidence-weighted vote.
-- `annotate.py` draws boxes and labels and renders the annotated video as a second pass over the video, after tracking, so labels use what is known about the whole track. Later phases add plate boxes and text to this same renderer.
+- `annotate.py` draws boxes and labels and renders the annotated video as a second pass over the video, after tracking and validation, so labels use what is known about the whole track. Plates get an amber outline with the number below; a confirmed number is black on amber with its confidence, an unconfirmed one is amber on dark and says "unconfirmed".
 - `results.py` writes the per-frame detections CSV and the per-track JSON.
+- `rules.py` decides which tracks count as vehicles: followed at least 0.5 s and at some point at least 6% of the frame height tall, and not the camera car's own bonnet (10 s or longer, wide, on the bottom edge 80% of the time). Sizes are fractions and times are seconds, so nothing depends on resolution or frame rate.
+- `validation.py` is plain logic, no model: plate formats, look-alike correction, and `decide`, which turns a vehicle's readings into Confirmed, Unconfirmed or Not Detected. The thresholds are in `ValidationRules`.
+- `runner.py` is the whole pipeline (`run_pipeline`): the seven stages in order with a progress callback per stage (`STAGES` matches the dashboard timeline), per-stage timings, and the result files. The worker in Phase 9 calls this; do not duplicate it.
+
+Things learned building the full pipeline (Phase 6, 2026-11-06) that are easy to undo by mistake:
+
+- **Short plate numbers are real.** `KL39P77`, `KL361375`, `TN062264` and `KL452960` looked like misreadings and were all correct when checked against the plate images. The format check allows 0 to 3 series letters and 1 to 4 digits on purpose; do not tighten it.
+- **A plate belongs to the smallest vehicle box containing its centre** (`plate_owner` in `runner.py`). Vehicle boxes overlap in traffic, so a van's cut-out showed the plate of the car ahead and both got that car's number confirmed. The same rule is applied when the renderer outlines plates. All plates found in a cut-out are considered, not just the most confident one.
+- **Two tracks in view at the same time cannot both hold one confirmed number** (`settle_shared_numbers`); the one with fewer agreeing frames becomes unconfirmed. Two tracks with the same confirmed number at different times are the same vehicle under a new track id (`mark_repeat_tracks`): the later one keeps its number but is not counted again.
+- Series letters never include I or O, which is what lets `KL1OAB1234` be corrected to `KL10AB1234`. A correction that could go two ways (`0D` as `OD` or `DD`) is refused, not guessed.
+- Each vehicle is examined in up to 6 frames (`best_frames`), read with `read_selected_frames` so only those frames are decoded.
+- Running `process` on a video again replaces that video's result folders.
 
 The plate reader (`ocr/src/anpr_ocr/recognizer.py`) deliberately departs from Awiros's reference `test.py`; do not "fix" it back. Tested on 2026-11-06 against plates read by eye ("OCR Smoke Test" in `ARCHITECTURE.md`):
 
@@ -125,10 +141,10 @@ Plate detector comparison (Phase 4, run 2026-11-06; full write-up in `tools/plat
 - `PlateDetector` rebuilds the network from the saved layout and passes that layout to Ultralytics as a dictionary. Given a file path instead, Ultralytics guesses the model size from the file name and silently builds the wrong size; keep it a dictionary.
 - Reading, not finding, is the limit: some candidate drew a box on 443 of 476 vehicles but only 108 were ever read. Boxes under 60 px wide are almost never read. The same footage read twice as many vehicles at 2K as at 1080p.
 - Most tracked vehicles never show a readable plate (side views, cut off by the frame edge), so low coverage on dashcam footage is expected, not a bug.
-- The camera car's own dashboard and bonnet get tracked as a vehicle in some videos (`ooty`, `truck`). Later phases must exclude it.
+- The camera car's own dashboard and bonnet get tracked as a vehicle in some videos (`ooty`, `truck`). `is_camera_car` in `pipeline/rules.py` excludes it; it has unit tests but has not yet been run on those two videos (Phase 7 does).
 - `pipeline/cropping.py` holds `crop_region` (copies original pixels, never resizes) and `best_frames` (the frames where a track's box is largest and not cut off). Use `best_frames` to decide where to look for plates.
 
-Passes are sequential on purpose (track, then render), matching the seven-stage timeline in the design. Anything that needs PyTorch is imported inside the function that uses it, so the tests run without loading a model.
+Passes are sequential on purpose (track, find plates, read, validate, render), matching the seven-stage timeline in the design. Anything that needs PyTorch is imported inside the function that uses it, so the tests run without loading a model.
 
 Rules from the specs that are easy to break:
 
@@ -155,7 +171,7 @@ These are assumed by the specs but not yet confirmed or available:
 
 ## Repository notes
 
-- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command), the `pipeline` package described above, and still-empty subpackages `api`, `dashboard` (`components`, `pages`), `db` and `worker`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
+- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command: `process`, `track`, `read-plates`), the `pipeline` package described above, and still-empty subpackages `api`, `dashboard` (`components`, `pages`), `db` and `worker`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
 - `models/` holds what the app loads and is git-ignored apart from `.gitkeep`: `yolo26m.pt` (official Ultralytics release), `plate/` (the safely re-saved plate detector) and `awiros/` (the OCR model, its dictionary and its reference `test.py`). Sources and checksums are recorded in `ocr/README.md`.
 - `storage/` holds uploads and generated files, also git-ignored apart from `.gitkeep`.
 - Commits are staged with `git add .`, so `.gitignore` is the only thing keeping large or secret files out. It covers `videos/`, model weights, `runs/` and `datasets/` (Ultralytics output), `.env`, and the vendored PaddleOCR source. Add a rule there before creating any new kind of generated file.

@@ -162,6 +162,91 @@ def _run_read_plates(args: argparse.Namespace) -> int:
     return 0
 
 
+STAGE_TITLES = {
+    "video_uploaded": "Video uploaded",
+    "vehicle_detection": "Vehicle detection (YOLO26m)",
+    "vehicle_tracking": "Vehicle tracking (TrackTrack)",
+    "plate_detection": "Plate detection (YOLO26s)",
+    "ocr": "OCR (Awiros-ANPR-OCR)",
+    "validation": "Multi-frame validation",
+    "result_generation": "Result generation",
+}
+
+
+def _stage_printer(every_seconds: float = 3.0):
+    """Build a stage-progress callback that prints each stage's start, occasional progress, and completion."""
+    state = {"stage": None, "last": 0.0, "started": 0.0, "finished": set()}
+
+    def report(stage: str, done: int, total: int) -> None:
+        if stage == "vehicle_tracking" or stage in state["finished"]:
+            return  # tracking runs in the same pass as detection; one line of progress covers both
+        now = time.perf_counter()
+        title = STAGE_TITLES[stage]
+        if stage == "vehicle_detection":
+            title = "Vehicle detection and tracking (YOLO26m + TrackTrack)"
+        if stage != state["stage"]:
+            state.update(stage=stage, last=0.0, started=now)
+        finished = done >= total
+        if not finished and now - state["last"] < every_seconds:
+            return
+        state["last"] = now
+        if finished:
+            state["finished"].add(stage)
+            print(f"  [done] {title}: {total} in {now - state['started']:.1f} s", flush=True)
+        else:
+            print(f"         {title}: {done}/{total} ({100 * done / total:.0f}%)", flush=True)
+
+    return report
+
+
+def _run_process(args: argparse.Namespace) -> int:
+    # Imported here so `tracko-anpr --help` does not load PyTorch.
+    from tracko_anpr.pipeline.runner import PipelineOptions, run_pipeline
+    from tracko_anpr.pipeline.validation import CONFIRMED
+
+    settings = get_settings()
+    info = probe_video(args.video)
+    print(
+        f"Video: {info.path.name}, {info.width}x{info.height}, {info.fps_float:.2f} FPS, "
+        f"{info.frame_count} frames, {info.duration_s:.1f} s"
+    )
+    options = PipelineOptions(render_video=not args.no_video, max_seconds=args.max_seconds)
+    result = run_pipeline(args.video, settings, options, _stage_printer(), name=args.name)
+
+    summary, timings = result.summary, result.timings
+    coverage = summary["recognition_coverage"]
+    print(f"\nFinished in {timings['total_s']:.1f} s")
+    print(
+        f"  Tracks: {summary['unique_tracks']} in all; {summary['total_vehicles']} count as vehicles "
+        f"({summary['tracks_too_brief_or_small']} too brief or too far, {summary['camera_car_tracks']} the camera car, "
+        f"{summary['repeat_tracks']} the same vehicle seen again)"
+    )
+    print(f"  Vehicles by type: {', '.join(f'{name} {count}' for name, count in summary['by_class'].items())}")
+    print(
+        f"  Plates: {summary['confirmed']} confirmed, {summary['unconfirmed']} unconfirmed, "
+        f"{summary['not_detected']} not detected"
+    )
+    if coverage is not None:
+        print(
+            f"  Recognition coverage: {100 * coverage:.1f}% "
+            f"({summary['confirmed']} of {summary['total_vehicles']} vehicles; coverage, not accuracy)"
+        )
+    confirmed = [vehicle for vehicle in result.vehicles if vehicle.status == CONFIRMED]
+    if confirmed:
+        print("  Confirmed numbers:")
+        for vehicle in confirmed:
+            decision = vehicle.decision
+            repeat = f"  (same vehicle as T{vehicle.same_vehicle_as})" if vehicle.same_vehicle_as is not None else ""
+            print(
+                f"    T{vehicle.track_id:<5} {vehicle.class_name:<11} {decision.text:<11} "
+                f"{decision.confidence:.2f}  {decision.support} of {decision.readings} readings{repeat}"
+            )
+    print("  Files:")
+    for label, path in result.files.items():
+        print(f"    {label:<16} {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracko-anpr", description="Vehicle ANPR proof of concept.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -184,6 +269,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     read_plates.add_argument("folder", type=Path, help="A folder of plate images.")
     read_plates.set_defaults(handler=_run_read_plates)
+
+    process = commands.add_parser(
+        "process",
+        help="Run the whole pipeline on an MP4: detect, track, find and read plates, validate, write the results.",
+    )
+    process.add_argument("video", type=Path, help="Path to an MP4 video.")
+    process.add_argument("--max-seconds", type=float, default=None, help="Only process the first N seconds.")
+    process.add_argument("--no-video", action="store_true", help="Skip the annotated video; write only the results.")
+    process.add_argument("--name", default=None, help="Name for this run's result folders (default: the file name).")
+    process.set_defaults(handler=_run_process)
     return parser
 
 

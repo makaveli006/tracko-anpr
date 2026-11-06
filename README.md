@@ -6,6 +6,26 @@ Proof of concept for Indian vehicle detection, tracking and number plate recogni
 
 Run from the project root, in WSL.
 
+### Process a video from start to finish
+
+```bash
+uv run tracko-anpr process videos/clips/kochi/kochi_part02.mp4
+```
+
+This runs the whole pipeline over an MP4: vehicle detection and tracking, plate detection, plate reading, validation across frames, and the annotated video. It prints each stage as it goes, then a summary: tracks, vehicles by type, how many number plates were confirmed, unconfirmed or not detected, recognition coverage (which is not accuracy), and the confirmed numbers.
+
+Results go under `storage/`, in folders named after the video:
+
+- `storage/processed/<name>/annotated.mp4` — the video with every vehicle boxed and labelled, plates outlined in amber, and each number shown as confirmed (`KL10AB1234 (0.97)`) or `unconfirmed`. Same resolution, frame rate and frame count as the input, with the original audio.
+- `storage/processed/<name>/results.json` — one record per track (type, when it was seen, plate decision and the reason for it), plus the summary, timings and settings.
+- `storage/processed/<name>/detections.csv` — one row per vehicle per frame.
+- `storage/processed/<name>/plates.csv` — one row per plate examined, with what the reader made of it.
+- `storage/vehicle_crops/<name>/` and `storage/plate_crops/<name>/` — the cut-out images.
+
+Options: `--max-seconds N` processes only the first N seconds; `--no-video` skips the annotated video; `--name NAME` chooses the folder name. Processing the same video again replaces its earlier results.
+
+A 2-minute clip takes about six to ten minutes. The rules that decide what counts as a vehicle and when a number is confirmed are in section 10 of `ARCHITECTURE.md`.
+
 ### Detect and track vehicles
 
 ```bash

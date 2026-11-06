@@ -351,6 +351,70 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
    Final Result → KL10AB1234
 
+ HOW IT IS BUILT (pipeline/validation.py, rules.py, runner.py)
+
+ Which tracks count as vehicles ("Total Vehicles"):
+   • Followed for at least 0.5 seconds, and at some point at
+     least 6% of the frame height tall (65 px at 1080p).
+     Sizes are fractions and times are seconds, so the rule
+     means the same at any resolution and frame rate.
+   • Not the camera car's own bonnet or dashboard: a track
+     10 seconds or longer, wide (a quarter of the frame),
+     resting on the bottom edge 80% of the time. It is
+     dropped from the counts and not drawn.
+   • Not a repeat: a later track with the same confirmed
+     number as an earlier one, not in view at the same time,
+     is the same vehicle under a new track number. It keeps
+     its number but is not counted again.
+   "Unique Tracks" is every track the tracker produced.
+
+ Which frames are read:
+   • Up to 6 frames per vehicle, the ones where its box is
+     largest and not cut off by the frame edge, at least
+     0.15 seconds apart.
+
+ Whose plate it is:
+   • Vehicle boxes overlap in traffic, so a vehicle's cut-out
+     can show a neighbour's plate. A plate goes to the
+     smallest vehicle box that contains its centre: the
+     vehicle in front has the smaller box, and it is the one
+     whose plate can be seen.
+
+ Plate formats accepted:
+   • Standard: 2-letter state code, 1 to 2 digit district,
+     0 to 3 series letters (never I or O), 1 to 4 digits.
+     Short forms are real and must stay valid: KL39P77,
+     KL361375 and TN062264 were all read correctly from
+     plates in our clips.
+   • BH series: 2 digits, "BH", 4 digits, 1 to 2 letters.
+   • Look-alike characters (0/O, 1/I, 8/B, 5/S, 2/Z ...) are
+     corrected only where that makes a reading valid, at
+     most 2 per reading, and never when two corrections are
+     equally possible.
+
+ Deciding:
+   • Readings under 0.60 confidence, and the reader's
+     "unreadable" answers, do not vote.
+   • Each remaining reading votes for its text with a weight
+     equal to its confidence. A valid number beats text that
+     is not one.
+   • Confirmed needs all of: a valid format, at least 2
+     frames giving the same number, at least 60% of the
+     votes, and one reading at 0.85 confidence or more.
+   • Two vehicles in view at the same time cannot both hold
+     the same confirmed number: the one with more agreeing
+     frames keeps it, the other becomes unconfirmed.
+
+ Statuses:
+   Confirmed     the rules above are met
+   Unconfirmed   a plate was found, but the readings do not
+                 meet them (the reason is recorded)
+   Not Detected  no plate was found on the vehicle
+   Failed        processing error
+
+ Recognition coverage = confirmed ÷ Total Vehicles. It is
+ coverage, not accuracy.
+
                          │
                          ▼
 
@@ -411,6 +475,28 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Output Example:
    storage/processed/video_001_annotated.mp4
+
+ HOW IT IS BUILT (pipeline/annotate.py)
+   • Rendered as a second pass, after validation, so a label
+     shows only what the whole track supports.
+   • Vehicle: bright green outline, dark green label with
+     white text, e.g. "#T101 Car (0.98)".
+   • Plate: amber outline wherever the plate is found in the
+     frame, with the number just below it. Where the plate
+     is not found in a frame, the number is written inside
+     the bottom of the vehicle's box.
+   • Confirmed: black on amber, "KL10AB1234 (0.97)".
+     Unconfirmed: amber on dark, "KL10AB1234 unconfirmed".
+   • Same size, frame rate and frame count as the input;
+     audio copied from the original.
+
+ Files written for one video (tracko-anpr process):
+   storage/processed/<name>/annotated.mp4
+   storage/processed/<name>/results.json    per vehicle
+   storage/processed/<name>/detections.csv  per box per frame
+   storage/processed/<name>/plates.csv      per plate read
+   storage/vehicle_crops/<name>/T<id>.jpg
+   storage/plate_crops/<name>/T<id>_f<frame>.png
 
                          │
                          ▼
@@ -828,9 +914,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 ══════════════════════════════════════════════════════════════
 
  YOLO26m with TrackTrack, input size 1536, FP16, on full
- 2-minute test clips. "Whole run" is tracking plus rendering
- the annotated video; plate detection and OCR are not built
- yet and will add to it.
+ 2-minute test clips. "Whole run" here is tracking plus
+ rendering the annotated video only; the full pipeline with
+ plates is measured in the next section.
 
  Clip format         Tracking      Whole run    Whole run
                      (frames/s)    (frames/s)   vs real time
@@ -848,6 +934,81 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Run it:
    uv run tracko-anpr track videos/clips/<video>/<piece>.mp4
+══════════════════════════════════════════════════════════════
+
+
+══════════════════════════════════════════════════════════════
+ MEASURED — FULL PIPELINE, END TO END (2026-11-06)
+══════════════════════════════════════════════════════════════
+
+ The whole pipeline on two complete 2-minute clips: vehicle
+ detection and tracking, plate detection, reading, validation
+ and the annotated video with plates.
+
+                          kochi_part02     mavoor_part02
+                          2K, 59.94 FPS    1080p, 60 FPS
+ ────────────────────────────────────────────────────────────
+ Frames                   7,250            7,200
+ Tracks                   266              245
+ Count as vehicles        173              183
+   too brief or too far   84               59
+   camera car             0                0
+   same vehicle again     9                3
+ Car / Motorcycle         85 / 69          70 / 46
+ Bus / Truck              5 / 14           14 / 53
+ Plates examined          687              431
+ Confirmed                44               13
+ Unconfirmed              102              95
+ Not detected             27               75
+ Recognition coverage     25.4%            7.1%
+
+ Time (seconds), two runs of each clip:
+ Detection and tracking   222 to 315       167 to 248
+ Plate detection          20 to 22         13 to 14
+ Reading (with start-up)  23 to 24         19 to 23
+ Validation               under 0.1        under 0.1
+ Annotated video          193 to 225       143 to 147
+ Total                    484 to 586       372 to 429
+ Compared with real time  0.21x to 0.25x   0.28x to 0.32x
+
+ • Both annotated videos matched their inputs exactly in
+   resolution, frame rate and frame count.
+ • GPU memory: 350 MiB peak for PyTorch in the main process;
+   the reader is a separate process (about 3.8 GB in all,
+   measured in Phase 5).
+ • The second run of each clip was slower in detection and
+   tracking although that code had not changed. The cause was
+   not found; Phase 7 measures speed again over more clips.
+ • Over half of the video-writing time is spent finding each
+   plate again in every frame so that it can be outlined
+   (156 of 225 seconds at 2K). This is the first place to
+   look if the full-length videos take too long.
+ • Coverage is far higher at 2K than at 1080p, as the plate
+   detector comparison predicted: plates under 60 px wide are
+   almost never read. Coverage is not accuracy.
+
+ CHECKED BY EYE
+ • Four confirmed numbers looked like misreadings because
+   they are short (KL39P77, KL361375, TN062264, KL452960).
+   All four are correct: the plates really say that.
+ • Two numbers were confirmed on two vehicles at once. In
+   both cases a vehicle's box overlapped a smaller vehicle
+   and picked up its plate (a van and the car ahead of it; a
+   car and a motorcycle in front of it). Fixed by giving a
+   plate to the smallest vehicle box containing its centre;
+   after the fix the car ahead holds its number with 10
+   agreeing frames and no number is confirmed twice at once.
+ • Known limit of that rule: when a distant vehicle's box
+   lies inside a near vehicle's box right at the plate, the
+   reading can go to the distant one. Seen once (three
+   readings of a motorcycle's plate went to a car behind
+   it); it caused no wrong confirmation.
+ • Not yet done: checking every confirmed number against its
+   plate image. That needs the hand-labelled set listed under
+   FUTURE IMPLEMENTATION.
+
+ Run it:
+   uv run tracko-anpr process videos/clips/<video>/<piece>.mp4
 ══════════════════════════════════════════════════════════════
 
 

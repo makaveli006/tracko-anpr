@@ -121,6 +121,30 @@ def read_frames(path: str | Path, max_frames: int | None = None) -> Iterator[np.
         capture.release()
 
 
+def read_selected_frames(path: str | Path, frame_numbers: set[int]) -> Iterator[tuple[int, np.ndarray]]:
+    """Yield only the wanted frames, as (frame number, full-resolution BGR image), in order.
+
+    The video is still read from the start, but frames that are not wanted are skipped
+    without being converted to images, which is much faster than decoding every one.
+    """
+    if not frame_numbers:
+        return
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise VideoError(f"OpenCV could not open {path}.")
+    try:
+        last = max(frame_numbers)
+        index = 0
+        while index <= last and capture.grab():
+            if index in frame_numbers:
+                ok, frame = capture.retrieve()
+                if ok:
+                    yield index, frame
+            index += 1
+    finally:
+        capture.release()
+
+
 class FFmpegWriter:
     """Encode BGR frames to an H.264 MP4 by piping them into FFmpeg.
 

@@ -11,7 +11,7 @@ Tick a phase when it is complete and merged into `development`.
 - [x] Phase 3 — OCR smoke test (done 2026-11-06; gate A: go with Awiros, a fallback reader is deferred to later)
 - [x] Phase 4 — Plate detector comparison (done 2026-11-06; gate B: `sentry-26s`, no fine-tuning; see `tools/plate_detector_eval/RESULTS.md`)
 - [x] Phase 5 — OCR service (done 2026-11-06)
-- [ ] Phase 6 — Validation, full pipeline, final video
+- [x] Phase 6 — Validation, full pipeline, final video (done 2026-11-06; `tracko-anpr process`, results in "Measured — full pipeline" in `ARCHITECTURE.md`)
 - [ ] Phase 7 — Acceptance and freeze (go/no-go C)
 - [ ] Phase 8 — Database
 - [ ] Phase 9 — Worker
