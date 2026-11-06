@@ -531,6 +531,66 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      ffmpeg -version
      ffprobe -version
 
+ PYTORCH + ULTRALYTICS (main environment)
+   Installed : 2026-11-06
+   Versions  : torch 2.14.1+cu126, torchvision 0.29.1+cu126,
+               ultralytics 8.4.203
+
+   pyproject.toml points torch and torchvision at PyTorch's
+   CUDA 12.6 download index, so the plain command below
+   fetches the build that matches the GPU driver.
+
+   Install (in WSL, not Windows PowerShell):
+     cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
+     export UV_LINK_MODE=copy
+     uv add "torch==2.14.1" torchvision ultralytics
+
+   UV_LINK_MODE=copy tells uv to copy package files into the
+   virtual environment instead of linking them from its
+   cache, which cannot work across the WSL and Windows
+   drives.
+
+   Then check that it worked and the GPU is visible:
+     uv run python -c "import torch, torchvision, ultralytics; print(torch.__version__, torchvision.__version__, ultralytics.__version__); print('CUDA available:', torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+
+   Expected output:
+     2.14.1+cu126 0.29.1+cu126 8.4.203
+     CUDA available: True
+     NVIDIA GeForce RTX 4070 Ti SUPER
+
+ PADDLEPADDLE (OCR environment, separate from the main one)
+   Installed : 2026-11-06
+   Versions  : paddlepaddle-gpu 3.3.1 (CUDA 12.6 build),
+               with nvidia-cudnn-cu12 9.5.1.17
+   Location  : ocr/.venv
+
+   ocr/pyproject.toml points paddlepaddle-gpu at Paddle's own
+   CUDA 12.6 download index, because PyPI only has the old
+   2.6.2.
+
+   Install (in WSL, inside the ocr folder):
+     cd /mnt/c/Users/ontashai/Desktop/tracko-anpr/ocr
+     export UV_LINK_MODE=copy
+     uv add "paddlepaddle-gpu==3.3.1" safetensors numpy opencv-python pillow pyyaml shapely scikit-image pyclipper rapidfuzz tqdm requests packaging
+
+   Then check that PaddlePaddle works on the GPU:
+     uv run python -c "import paddle; print(paddle.__version__); print('CUDA build:', paddle.device.is_compiled_with_cuda()); paddle.utils.run_check()"
+
+   Expected output: 3.3.1, CUDA build: True, and a final line
+   saying PaddlePaddle is installed successfully.
+
+   What to expect:
+   • A warning about VIRTUAL_ENV: when the terminal has the
+     main (tracko-anpr) environment active, uv says it is
+     ignoring it. That is harmless; uv creates a separate
+     ocr/.venv, which is the point. Run deactivate first to
+     avoid the warning.
+   • A "libcuda.so ... cannot open shared object file"
+     message was printed on this machine, but the GPU check
+     still passed. If the OCR model later fails to use the
+     GPU, try:
+       export LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH
+
 
 ══════════════════════════════════════════════════════════════
  FINAL EXECUTION FLOW

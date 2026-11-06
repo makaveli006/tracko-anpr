@@ -7,7 +7,21 @@ authors = [
     { name = "Subin Krishna K T", email = "subin@ontash.net" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.5.4",
+    "opencv-python>=5.0.0.93",
+    "packaging>=26.3",
+    "paddlepaddle-gpu==3.3.1",
+    "pillow>=13.0.0",
+    "pyclipper>=1.4.0",
+    "pyyaml>=6.0.3",
+    "rapidfuzz>=3.14.6",
+    "requests>=2.34.2",
+    "safetensors>=0.8.0",
+    "scikit-image>=0.26.0",
+    "shapely>=2.2.0",
+    "tqdm>=4.70.1",
+]
 
 [project.scripts]
 anpr-ocr = "anpr_ocr:main"
@@ -15,3 +29,15 @@ anpr-ocr = "anpr_ocr:main"
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
+
+# GPU builds of PaddlePaddle 3.x are published on Paddle's own index, not on PyPI
+# (PyPI only has the old 2.6.2). The cu126 index is the CUDA 12.6 build, which the
+# installed NVIDIA driver (572.16, up to CUDA 12.8) can run.
+# `explicit = true` means only the packages listed under [tool.uv.sources] use this index.
+[[tool.uv.index]]
+name = "paddle-cu126"
+url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+explicit = true
+
+[tool.uv.sources]
+paddlepaddle-gpu = { index = "paddle-cu126" }

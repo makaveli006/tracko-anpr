@@ -7,7 +7,11 @@ authors = [
     { name = "Subin Krishna K T", email = "subin@ontash.net" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "torch==2.14.1",
+    "torchvision>=0.29.1",
+    "ultralytics>=8.4.203",
+]
 
 [project.scripts]
 tracko-anpr = "tracko_anpr:main"
@@ -15,3 +19,15 @@ tracko-anpr = "tracko_anpr:main"
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
+
+# PyTorch must be the CUDA 12.6 build: the installed NVIDIA driver (572.16) supports
+# up to CUDA 12.8, and PyPI's default torch wheels need CUDA 13.
+# `explicit = true` means only the packages listed under [tool.uv.sources] use this index.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
