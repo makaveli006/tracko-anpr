@@ -33,6 +33,12 @@ uv run anpr-ocr read ../storage/plate_crops/phase3_smoke/selected
 
 It prints the text and confidence for every plate image in the folder. See [ocr/README.md](ocr/README.md).
 
+The main program reaches the reader by starting it as a service. This command, run from the project root, does the whole round trip:
+
+```bash
+uv run tracko-anpr read-plates storage/plate_crops/phase3_smoke/selected
+```
+
 ## Development
 
 Run these from the project root, in WSL:

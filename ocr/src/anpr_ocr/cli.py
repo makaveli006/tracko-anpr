@@ -73,6 +73,12 @@ def _run_read(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve(args: argparse.Namespace) -> int:
+    from anpr_ocr.service import run
+
+    return run()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="anpr-ocr", description="Read number plate crops with Awiros-ANPR-OCR.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -82,6 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("--json", type=Path, default=None, help="Also write the readings to this JSON file.")
     read.add_argument("--batch-size", type=int, default=32, help="Images per batch (default 32).")
     read.set_defaults(handler=_run_read)
+
+    serve = commands.add_parser(
+        "serve", help="Run as a service: load the model once, then answer JSON requests on standard input."
+    )
+    serve.set_defaults(handler=_run_serve)
     return parser
 
 

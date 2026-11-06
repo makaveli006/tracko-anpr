@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: Phases 1 to 4 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, vehicle detection and tracking works from the command line (`tracko-anpr track`), the plate detector is chosen and loadable (`PlateDetector`), and the plate reader works on a folder of plate crops (`anpr-ocr read`, inside `ocr/`). The three parts are not yet joined: the OCR service, validation, the full pipeline, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
+**Status: Phases 1 to 5 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and the three model stages each work: vehicle detection and tracking (`tracko-anpr track`), plate detection (`PlateDetector`), and plate reading, which the main program reaches through a service (`OcrClient`, `tracko-anpr read-plates`). They are not yet joined into one pipeline: validation, the full pipeline run, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
 
 **The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
@@ -35,6 +35,7 @@ uv add <package>        # add a dependency (updates pyproject.toml and uv.lock)
 uv run tracko-anpr track <video.mp4>                  # detect and track vehicles; results in storage/processed/
 uv run tracko-anpr track <video.mp4> --max-seconds 10 # same, first 10 seconds only (quick check)
 uv run tracko-anpr track <video.mp4> --no-video       # detections and tracks only, no annotated video (faster)
+uv run tracko-anpr read-plates <folder>               # read plate crops through the reader service (full round trip)
 ```
 
 A full 2-minute clip takes two and a half to seven minutes, so run those in the background; the first frame alone takes several seconds while the GPU starts up.
@@ -106,6 +107,15 @@ The plate reader (`ocr/src/anpr_ocr/recognizer.py`) deliberately departs from Aw
 - Confidence is not correctness. Good readings sit near 0.92, but on non-plates the attention decoder still writes a plausible plate number at about 0.2 to 0.3, and one Kerala plate was read as `DL...` at 0.86. Validation must apply a confidence threshold and vote across frames.
 - Plate width decides success: under 60 px only about 12% of crops gave a confident plate-shaped reading, at 150 px and over about 68%. Prefer the frames where a vehicle is largest.
 - Reading takes about 10 ms per plate after about 15 s of model loading, so keep one recognizer alive.
+
+How the main program reaches the reader (Phase 5): `OcrClient` in `pipeline/ocr_client.py` starts `ocr/.venv/bin/anpr-ocr serve` as a child process and exchanges one JSON line per message over its standard input and output, passing plate crops as file paths. The protocol is documented in `ocr/src/anpr_ocr/service.py` and `ocr/README.md`.
+
+- The client never waits forever: start-up and each request have time limits (`TRACKO_OCR_START_TIMEOUT`, `TRACKO_OCR_REQUEST_TIMEOUT`), and a dead reader is raised as `OcrError` with its exit code and last messages. After a death, the next `read()` starts a fresh reader by itself.
+- Measured: about 20 s to start, then 8 to 10 ms per plate. A reader killed mid-request takes about 13 s to be reported, because WSL is slow to release a GPU process; that is not a hang.
+- The service's standard output carries protocol messages only. `service.py` redirects everything else to standard error at the file-descriptor level, because PaddlePaddle prints from C++ as well as Python. Never `print()` to standard output in the OCR service.
+- The client sets `LD_LIBRARY_PATH=/usr/lib/wsl/lib` for the reader, which removes PaddlePaddle's `libcuda.so` warning.
+- GPU memory with YOLO26m (a 2K frame at input 1536), the plate detector and the reader all loaded: about 3.8 GB of 16 GB.
+- `tests/test_ocr_client.py` runs the client against `tests/fake_ocr_service.py`, a stand-in that speaks the protocol and can be told to misbehave, so those tests need no model.
 
 Plate detector comparison (Phase 4, run 2026-11-06; full write-up in `tools/plate_detector_eval/RESULTS.md`):
 

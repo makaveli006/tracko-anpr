@@ -63,6 +63,8 @@ class Settings:
     ocr_project: Path
     ocr_model: Path
     ocr_dictionary: Path
+    ocr_start_timeout_seconds: float
+    ocr_request_timeout_seconds: float
 
     # Database (ARCHITECTURE.md section 11)
     database_url: str
@@ -125,6 +127,8 @@ def load_settings(root: Path | None = None, environ: dict[str, str] | None = Non
         ocr_project=root / "ocr",
         ocr_model=Path(env.get("TRACKO_OCR_MODEL", models / "awiros" / "model.safetensors")),
         ocr_dictionary=Path(env.get("TRACKO_OCR_DICTIONARY", models / "awiros" / "en_dict.txt")),
+        ocr_start_timeout_seconds=float(env.get("TRACKO_OCR_START_TIMEOUT", "180")),
+        ocr_request_timeout_seconds=float(env.get("TRACKO_OCR_REQUEST_TIMEOUT", "60")),
         database_url=build_database_url(env),
     )
 

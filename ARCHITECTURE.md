@@ -281,6 +281,23 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                    reference script uses the CTC decoder,
                    which misses characters on two-line plates
                    (see "OCR Smoke Test" below).
+ Service         : The reader runs as a long-lived program
+                   (anpr-ocr serve) that the main program
+                   starts and talks to in lines of JSON over
+                   standard input and output, sending plate
+                   crops as file paths. No network port is
+                   opened.
+
+                   Measured 2026-11-06: about 20 s to start,
+                   then 8 to 10 ms per plate. If the reader
+                   dies mid-request the caller gets a clear
+                   error (after about 13 s, the time WSL
+                   takes to release a GPU process), and the
+                   next request starts a fresh reader.
+
+ GPU memory with all three models loaded (YOLO26m at 1536 on
+ a 2K frame, the plate detector, and the reader): about
+ 3.8 GB of the card's 16 GB.
 
  Responsibilities:
    • Read registration plate characters

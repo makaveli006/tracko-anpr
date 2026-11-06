@@ -56,6 +56,28 @@ uv run pytest                                        # tests (no model or GPU ne
 
 The table of readings goes to standard output; PaddlePaddle's own messages and the timing line go to standard error.
 
+## As a service
+
+The main application cannot import this project (different environment), so it starts `anpr-ocr serve` as a child process and exchanges one line of JSON per message over standard input and output. No network port is opened.
+
+```text
+service -> {"event": "ready", "protocol": 1, "device": "gpu:0"}        once the model has loaded
+client  -> {"id": 7, "images": ["/path/a.png", "/path/b.png"]}
+service -> {"id": 7, "readings": [{"text": "KL07CN9092", "confidence": 0.92,
+                                   "unreadable": false, "ctc_text": "KL07CN9092"}, ...]}
+client  -> {"id": 8, "command": "ping"}         service -> {"id": 8, "pong": true}
+client  -> {"id": 9, "command": "shutdown"}     service -> {"id": 9, "bye": true}, then exits
+```
+
+- A problem with one request is answered with `{"id": ..., "error": "..."}` and the service carries on.
+- If the model cannot be loaded, the service sends `{"event": "failed", "error": "..."}` and exits.
+- Closing standard input also stops it.
+- Standard output carries nothing but these messages; `service.py` redirects everything else, including what PaddlePaddle prints at the operating-system level, to standard error.
+
+The client is `src/tracko_anpr/pipeline/ocr_client.py` in the main project. To try the whole round trip from the repository root: `uv run tracko-anpr read-plates <folder>`.
+
+Under WSL, PaddlePaddle prints a long `libcuda.so` warning on start. It is harmless; setting `LD_LIBRARY_PATH=/usr/lib/wsl/lib` removes it, and the client does that automatically.
+
 ## How plates are read
 
 - **Input:** a cropped number plate image, scaled to 48 pixels high, widened by 1.5, and padded to 320 wide.

@@ -127,6 +127,41 @@ def _run_track(args: argparse.Namespace) -> int:
     return 0
 
 
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
+def _run_read_plates(args: argparse.Namespace) -> int:
+    from tracko_anpr.pipeline.ocr_client import OcrClient
+
+    if not args.folder.is_dir():
+        raise FileNotFoundError(f"Folder not found: {args.folder}")
+    images = sorted(p for p in args.folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES)
+    if not images:
+        raise FileNotFoundError(f"No images in {args.folder}")
+
+    settings = get_settings()
+    started = time.perf_counter()
+    with OcrClient.for_project(
+        settings.ocr_project,
+        start_timeout=settings.ocr_start_timeout_seconds,
+        request_timeout=settings.ocr_request_timeout_seconds,
+    ) as reader:
+        ready = time.perf_counter()
+        readings = reader.read(images)
+        finished = time.perf_counter()
+        device = reader.device
+
+    width = max(len(image.name) for image in images)
+    for image, reading in zip(images, readings, strict=True):
+        shown = "(unreadable)" if reading.unreadable else (reading.text or "(nothing read)")
+        print(f"{image.name:<{width}}  {shown:<16}  {reading.confidence:.4f}")
+    print(
+        f"\n{len(images)} plates through the reader service on {device}: started in {ready - started:.1f} s, "
+        f"read in {finished - ready:.2f} s ({1000 * (finished - ready) / len(images):.1f} ms per plate)"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracko-anpr", description="Vehicle ANPR proof of concept.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -143,13 +178,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-video", action="store_true", help="Skip the annotated video; write only the detections and tracks."
     )
     track.set_defaults(handler=_run_track)
+
+    read_plates = commands.add_parser(
+        "read-plates", help="Read plate crops in a folder by starting the plate reader service and asking it."
+    )
+    read_plates.add_argument("folder", type=Path, help="A folder of plate images.")
+    read_plates.set_defaults(handler=_run_read_plates)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tracko_anpr.pipeline.ocr_client import OcrError
+
     args = build_parser().parse_args(argv)
     try:
         return args.handler(args)
-    except (VideoError, FileNotFoundError) as error:
+    except (VideoError, FileNotFoundError, OcrError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
