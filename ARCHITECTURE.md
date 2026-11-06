@@ -254,6 +254,11 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  Source          : Hugging Face — Awiros/anpr-ocr
  Runtime         : Own Python environment and process,
                    separate from the PyTorch models
+ Decoder         : The model's attention (NRTR) decoder, with
+                   the plate image widened by 1.5. Awiros's
+                   reference script uses the CTC decoder,
+                   which misses characters on two-line plates
+                   (see "OCR Smoke Test" below).
 
  Responsibilities:
    • Read registration plate characters
@@ -769,6 +774,85 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Run it:
    uv run tracko-anpr track videos/clips/<video>/<piece>.mp4
+══════════════════════════════════════════════════════════════
+
+
+══════════════════════════════════════════════════════════════
+ OCR SMOKE TEST — AWIROS-ANPR-OCR (2026-11-06)
+══════════════════════════════════════════════════════════════
+
+ Question: can the Awiros model read number plates from this
+ project's own footage?
+
+ HOW IT WAS TESTED
+
+ 448 plate crops were cut from four test clips, using the
+ vehicle boxes from the tracking pass and the two ONNX plate
+ detectors (ONNX files cannot run code, so they are safe to
+ load). 40 crops were picked to cover large and small,
+ one-line and two-line plates, and read by eye.
+
+ FINDING 1 — THE REFERENCE SCRIPT USES THE WEAKER DECODER
+
+ The model has two decoders. Awiros's own test.py reads the
+ CTC decoder. On Awiros's own nine sample plates that gives
+ 5 right and 4 with one character missing, including all
+ three two-line plates. Their published results file shows
+ the same misses.
+
+ The other decoder (the attention, or NRTR, head) writes the
+ text one character at a time. It reads two-line plates
+ correctly. This project uses it.
+
+ FINDING 2 — DRAWING THE PLATE WIDER HELPS
+
+ Widening the plate image by 1.5 before reading fixes
+ characters lost at the right edge.
+
+ RESULTS, PLATES CLEARLY LEGIBLE BY EYE
+
+                               Awiros's 9     Our 16
+                               samples        plates
+ ────────────────────────────────────────────────────────────
+ Reference script (CTC)        5 right        11 right
+ CTC, plate widened            7 right        13 right
+ Attention, plate widened      8 right        16 right
+ (what this project uses)
+
+ Of our 16, 13 are one-line and 3 are two-line; the chosen
+ method read all of both. These are small samples: enough to
+ choose a method, not enough to state an accuracy figure.
+
+ WHAT ELSE THE TEST SHOWED
+
+ • Unreadable plates: the model answers with a fixed word
+   meaning "cannot read", which the reader turns into an
+   empty, unreadable result.
+ • Things that are not plates: the model still writes a
+   plausible plate number (for example KA02CM4231), but with
+   confidence about 0.2 to 0.3. Good readings sit near 0.92.
+   A confidence threshold is required; confidence alone is
+   not proof of a correct reading.
+ • Plate size decides everything. Share of crops giving a
+   confident, plate-shaped reading:
+
+     Plate width          Crops   Confident readings
+     under 60 px            93    12%
+     60 to 99 px           153    33%
+     100 to 149 px          93    47%
+     150 px and over       109    68%
+
+ • State code slips: one Kerala plate was read as DL... at
+   confidence 0.86. Multi-frame validation has to handle
+   this.
+ • Speed: about 10 ms per plate on the GPU, after about 15 s
+   to load the model.
+
+ Run it (inside the ocr folder):
+   uv run anpr-ocr read <folder of plate images>
+
+ The 40 crops with their readings are in
+ storage/processed/phase3_ocr_smoke_sheet_1.jpg and _2.jpg.
 ══════════════════════════════════════════════════════════════
 
 

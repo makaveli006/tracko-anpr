@@ -22,6 +22,17 @@ Options: `--max-seconds N` processes only the first N seconds; `--output-dir DIR
 
 Only MP4 input is accepted. Resolution and frame rate are read from the video.
 
+### Read number plate crops
+
+The reader lives in its own project, so run it from inside `ocr/`:
+
+```bash
+cd ocr
+uv run anpr-ocr read ../storage/plate_crops/phase3_smoke/selected
+```
+
+It prints the text and confidence for every plate image in the folder. See [ocr/README.md](ocr/README.md).
+
 ## Development
 
 Run these from the project root, in WSL:
@@ -31,6 +42,8 @@ uv run ruff check      # lint
 uv run ruff format     # format
 uv run pytest          # tests
 ```
+
+`uv run ruff check` covers the whole repository, including `ocr/src`. The OCR project's own tests run in its environment: `cd ocr && uv run pytest`.
 
 Settings come from environment variables, with a `.env` file read first if present. Copy `.env.example` to `.env` to set them; `.env` is git-ignored. The defaults are in `src/tracko_anpr/config.py`.
 

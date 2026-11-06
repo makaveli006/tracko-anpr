@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: Phases 1 and 2 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and vehicle detection and tracking works from the command line (`tracko-anpr track`). Plate detection, OCR, validation, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
+**Status: Phases 1 to 3 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, vehicle detection and tracking works from the command line (`tracko-anpr track`), and the plate reader works on a folder of plate crops (`anpr-ocr read`, inside `ocr/`). No plate detector has been chosen, and the OCR service, validation, the database, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
 
 **The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
@@ -37,6 +37,16 @@ uv run tracko-anpr track <video.mp4> --max-seconds 10 # same, first 10 seconds o
 ```
 
 A full 2-minute clip takes two and a half to seven minutes, so run those in the background; the first frame alone takes several seconds while the GPU starts up.
+
+The OCR project has its own environment, so its commands run from inside `ocr/` (with the main environment active, uv prints a harmless `VIRTUAL_ENV` warning):
+
+```bash
+cd ocr
+uv run anpr-ocr read <folder or image>   # read plate crops; add --json FILE to save the readings
+uv run pytest                            # the OCR project's tests
+```
+
+`uv run ruff check` from the repo root lints both projects.
 
 Python is pinned to 3.12 (`.python-version`); the build backend is `uv_build` with a `src/` layout.
 
@@ -86,6 +96,16 @@ How the pipeline code is organised (`src/tracko_anpr/pipeline/`):
 - `annotate.py` draws boxes and labels and renders the annotated video as a second pass over the video, after tracking, so labels use what is known about the whole track. Later phases add plate boxes and text to this same renderer.
 - `results.py` writes the per-frame detections CSV and the per-track JSON.
 
+The plate reader (`ocr/src/anpr_ocr/recognizer.py`) deliberately departs from Awiros's reference `test.py`; do not "fix" it back. Tested on 2026-11-06 against plates read by eye ("OCR Smoke Test" in `ARCHITECTURE.md`):
+
+- It uses the model's attention (NRTR) decoder. The reference script's CTC decoder drops a character on almost every two-line plate, even on Awiros's own samples. The model's forward pass returns only the CTC branch outside training, so the recognizer calls both heads on the backbone features itself and returns the CTC text as a second opinion.
+- It widens the plate image by 1.5 before reading, which stops characters at the right edge being lost.
+- With both, all 16 clearly legible plates from our clips were read correctly (13 one-line, 3 two-line), against 11 for the reference method. That is a small sample: it justifies the method, not an accuracy claim.
+- The model answers `UNREADBLE` (its spelling) for plates it cannot read; the recognizer turns that into an empty reading with `unreadable=True`.
+- Confidence is not correctness. Good readings sit near 0.92, but on non-plates the attention decoder still writes a plausible plate number at about 0.2 to 0.3, and one Kerala plate was read as `DL...` at 0.86. Validation must apply a confidence threshold and vote across frames.
+- Plate width decides success: under 60 px only about 12% of crops gave a confident plate-shaped reading, at 150 px and over about 68%. Prefer the frames where a vehicle is largest.
+- Reading takes about 10 ms per plate after about 15 s of model loading, so keep one recognizer alive.
+
 Passes are sequential on purpose (track, then render), matching the seven-stage timeline in the design. Anything that needs PyTorch is imported inside the function that uses it, so the tests run without loading a model.
 
 Rules from the specs that are easy to break:
@@ -104,7 +124,7 @@ Rules from the specs that are easy to break:
 These are assumed by the specs but not yet confirmed or available:
 
 - No plate detector has been chosen. Untested third-party candidates are in `pretrained-numberplate-weight/` (see its README); none is a confirmed fit, so fine-tuning YOLO26s may still be needed.
-- `Awiros/anpr-ocr` on Hugging Face is public, ungated and Apache-2.0; `model.safetensors` (149 MB) downloads without login (checked 2026-11-06). It is not a pip-installable pipeline: its `test.py` builds the network from the PaddleOCR source tree (`ppocr`, cloned from GitHub) and loads the safetensors into it, so the project needs a pinned PaddleOCR checkout plus `paddlepaddle-gpu>=2.6.0`. Input is a plate crop resized to 48 px high (max 320 wide); output is uppercase text plus a CTC confidence. Accuracy figures are the publisher's own. The source is checked out at `ocr/vendor/PaddleOCR` (tag `v3.7.0`), and on 2026-11-06 the network it builds matched the weights exactly (545 of 545 tensors) on the GPU with the packages already in `ocr/pyproject.toml`. No plate image has been read yet. The source prints harmless `SyntaxWarning` lines on import, and PaddlePaddle prints a `libcuda.so` message that has not affected GPU use so far.
+- `Awiros/anpr-ocr` on Hugging Face is public, ungated and Apache-2.0; `model.safetensors` (149 MB) downloads without login (checked 2026-11-06). It is not a pip-installable pipeline: its `test.py` builds the network from the PaddleOCR source tree (`ppocr`, cloned from GitHub) and loads the safetensors into it, so the project needs a pinned PaddleOCR checkout plus `paddlepaddle-gpu>=2.6.0`. Input is a plate crop resized to 48 px high (max 320 wide); output is uppercase text plus a CTC confidence. Accuracy figures are the publisher's own. The source is checked out at `ocr/vendor/PaddleOCR` (tag `v3.7.0`), and on 2026-11-06 the network it builds matched the weights exactly (545 of 545 tensors) on the GPU with the packages already in `ocr/pyproject.toml`. Plate crops are now read correctly (see the reader notes under "Planned architecture"). The source prints harmless `SyntaxWarning` lines on import, and PaddlePaddle prints a `libcuda.so` message that has not affected GPU use so far.
 - PyTorch and PaddlePaddle clash in one environment (resolution tested on 2026-11-06; both are now installed, each in its own environment):
   - The NVIDIA driver is 572.16, which reports CUDA 12.8. PyPI's default `torch` (2.15.0) is built against CUDA 13 libraries and probably needs a newer driver; the newest CUDA 12.6 build is `torch==2.14.1+cu126` from `https://download.pytorch.org/whl/cu126`.
   - GPU builds of PaddlePaddle 3.x come from Paddle's own index (`https://www.paddlepaddle.org.cn/packages/stable/cu126/`, latest 3.3.1), not PyPI. PyPI only has the old 2.6.2, which uv silently falls back to.

@@ -41,3 +41,13 @@ explicit = true
 
 [tool.uv.sources]
 paddlepaddle-gpu = { index = "paddle-cu126" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+# Only this project's tests; the vendored PaddleOCR source has a test suite of its own.
+testpaths = ["tests"]
+addopts = "-q"
