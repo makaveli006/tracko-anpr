@@ -22,7 +22,7 @@ Rule of thumb for a phone recording in landscape at 1080p (a typical phone camer
 
 ## 3. How to record
 
-- **Landscape, 1080p, 30 frames per second.** 4K adds nothing to recognition (a plate that is too small at 1080p is still too small at 4K) and costs about six times the processing time. Portrait recordings are not used in this project.
+- **Landscape, 1080p, 30 frames per second.** 4K adds nothing to recognition (a plate that is too small at 1080p is still too small at 4K) and takes about two and a half times longer to process. Portrait recordings are not used in this project.
 - **MP4 (H.264)** is the format the system takes directly.
 - **Lock focus and exposure** on the road area if your phone allows it (tap and hold on most phones). Autofocus hunting between a near car and the background blurs plates.
 - **Prefer a fast shutter**: a "sports" or "action" video mode, or good daylight. Motion blur is the main reason a plate that is big enough is still unreadable.

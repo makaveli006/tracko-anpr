@@ -250,7 +250,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
     camera in line with the traffic within 30°, level within
     5°, height about half the reading distance, above
     headlights, not into the sun; landscape 1080p at 30 fps
-    (4K adds nothing and costs six times the processing),
+    (4K adds nothing and costs two and a half times the
+    processing),
     focus and exposure locked, fast shutter, phone still,
     1 to 3 minute clips; night only with light at the camera
     (plates are retro-reflective); a plate-width self-check
@@ -309,6 +310,118 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
     interest, retention period and capture type. Any of them
     changes results, so they wait until the demo and are
     judged with the accuracy procedure.
+
+ FASTER VIDEO PROCESSING (item 4 of the future work)
+
+ "Optimize the video processing pipeline to reduce
+ processing time, especially for 4K videos. Explore batch
+ inference, parallel processing, and faster video encoding."
+ Taken in steps, cheapest first; each step is measured on
+ the three demo videos and must leave every result
+ identical. The settings frozen in Phase 7 are untouched.
+
+ Where the time went before any change (clear.mp4, 4K at
+ 60 FPS, 2 min 25 s, 8,688 frames; the Phase 14 run,
+ 979 s in all):
+   detection and tracking      536 s   55%
+   plate detection and OCR      64 s    7%
+   render pass                 379 s   39%
+     second decode of the 4K     32 s
+     plate detector run again   217 s   (to find the box
+                                         to outline, in
+                                         every frame)
+     encoding 3840x2160         126 s
+ The render pass was doing work that was already done
+ (the plate boxes exist from stage 4) and encoding a size
+ the browser never shows (the dashboard plays the video in
+ a 1,000 px wide player).
+
+ STEP 1 — RENDER PASS (done 2026-11-07)
+   • The outlines come from the stage-4 plate sightings:
+     annotate.plate_boxes_by_frame keeps each plate's
+     position relative to its vehicle box, interpolates it
+     between the examined frames and holds it outside
+     them. The plate detector no longer runs in stage 7.
+     Known limit: while a vehicle is partly hidden its box
+     shrinks and the outline drifts by a few pixels (seen
+     on rope: a truck passing behind a tree). A frame the
+     tracker skipped gets no box, as before.
+   • Inputs taller than 1080p are scaled down to 1080p for
+     the annotated copy (PipelineOptions.annotated_max_
+     height, default 1080; cv2.INTER_AREA before drawing;
+     boxes scaled with the frame; width kept even). The
+     original video, the crops and every result stay at
+     full resolution. results.json records the copy's size
+     under "annotated_video".
+   • Measured by reprocessing the demo set through the
+     worker (the earlier figures are the Phase 14 runs):
+
+     Video      Format    Before   After   Render pass    Annotated file
+     ─────────────────────────────────────────────────────────────────────
+     clear      4K 60     979 s    667 s   379 s → 157 s  770 MB → 214 MB
+     rope       4K 30     194 s    145 s    82 s →  33 s  288 MB →  90 MB
+     zoomed-in  1080p 30  213 s    208 s    67 s →  43 s  111 MB → 107 MB
+
+     clear now runs at 4.6 times its length (was 6.8),
+     rope at 2.5, zoomed-in at 1.9. Detection and tracking
+     varies by about 20% between runs of the same video,
+     so the whole-run figures carry that noise; the render
+     pass figures do not. On clear the render pass is now
+     42 s decoding, 24 s scaling and drawing, 91 s
+     encoding 1920x1080.
+   • Results: every vehicle record, summary and plate
+     count identical to the earlier runs (rope's
+     timestamps moved by 1 ms because its file had been
+     re-muxed without audio in between, which changed the
+     reported frame rate in the fourth decimal).
+   • Tests: plate_boxes_by_frame (interpolation, holding,
+     the small-vehicle rule, tracks never seen),
+     output_size, and rendering a tiny video at a smaller
+     height with its boxes (tests/test_pipeline_logic.py).
+
+ WHERE THE TIME GOES NOW (clear.mp4, 667 s)
+   detection and tracking      472 s   71%   (4K decoding
+                                              is CPU-bound)
+   plate detection and OCR      38 s    6%
+   render pass                 157 s   24%
+
+ STEP 2 — DECODE ONCE, AND DECODE ON THE GPU (future)
+   The 4K file is decoded twice (tracking pass and render
+   pass), both by FFmpeg/OpenCV on the CPU at 5 to 10
+   frames/s for 4K against 30 to 50 at 1080p, which is
+   why detection and tracking is 71% of the run while the
+   GPU waits. Two options, in order:
+   • Hardware decoding (FFmpeg -hwaccel cuda / NVDEC)
+     for both passes. The card has an NVDEC engine; the
+     apt FFmpeg 6.1.1 in WSL needs checking for nvdec
+     support (WSL passes the GPU through for CUDA; video
+     engines are a separate question). Potentially the
+     largest remaining lever for 4K.
+   • Keep a 1080p copy of each frame from the first pass
+     (on disk, ~6 MB per frame uncompressed, or as a fast
+     intra-only video) and render from that, removing the
+     second decode (42 s on clear).
+   Rendering inside the tracking pass is not an option:
+   labels show the settled class and the validated number,
+   which are known only after the whole track is seen.
+
+ STEP 3 — BATCH INFERENCE AND FASTER ENCODING (future)
+   • Decode on a thread and feed YOLO26m batches of frames
+     (Ultralytics tracking takes one frame at a time;
+     batching needs the tracker to be driven per frame
+     from batched detections). Worth doing only once
+     decoding stops being the bottleneck.
+   • Encode the annotated copy with NVENC (h264_nvenc)
+     instead of libx264: the 91 s of 1080p encoding on
+     clear would fall to roughly 15 s. Needs an FFmpeg
+     build with nvenc in WSL; quality and file size to be
+     checked against the current CRF 20 / preset fast.
+   • Parallel processing across videos is one worker per
+     GPU-sized slice of memory (a run peaks at 3.4 GB of
+     16 GB); the queue already allows several workers, but
+     one 4K run saturates the CPU decoder, so it is not
+     expected to help on this machine and is not planned
+     for the POC.
 
  HOW THE WORKER IS BUILT (worker/service.py, Phase 9)
 
@@ -812,7 +925,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Tools           : OpenCV + FFmpeg
  Output          : H.264 MP4
- Resolution      : Same as the input video
+ Resolution      : Up to 1080p (inputs above 1080p are scaled
+                   down for playback; the original is untouched)
  Playback FPS    : Same as the input video
 
  Annotations:
@@ -832,14 +946,27 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      shows only what the whole track supports.
    • Vehicle: bright green outline, dark green label with
      white text, e.g. "#T101 Car (0.98)".
-   • Plate: amber outline wherever the plate is found in the
-     frame, with the number just below it. Where the plate
-     is not found in a frame, the number is written inside
-     the bottom of the vehicle's box.
+   • Plate: amber outline at the plate, with the number just
+     below it. The outline comes from the plates found in
+     stage 4 (plate_boxes_by_frame): the plate's position
+     relative to the vehicle box is interpolated between the
+     examined frames and held before the first and after the
+     last, so the plate detector does not run again in this
+     pass (it used to, in every frame, and that was a quarter
+     of a 4K run). While a vehicle is partly hidden its box
+     shrinks and the outline can drift by a few pixels. Where
+     a vehicle is too small to outline (under the 6%-of-frame
+     rule) the number is written inside the bottom of its box.
    • Confirmed: black on amber, "KL10AB1234 (0.97)".
      Unconfirmed: amber on dark, "KL10AB1234 unconfirmed".
-   • Same size, frame rate and frame count as the input;
-     audio copied from the original.
+   • Same frame rate and frame count as the input; audio
+     copied from the original. Inputs taller than 1080p are
+     scaled down to 1080p (PipelineOptions.annotated_max_
+     height; boxes scaled with the frame) because the browser
+     plays them at a fraction of their size anyway and a 4K
+     encode took as long as the tracking; detection, crops
+     and results always use the original frames. results.json
+     records the copy's size under "annotated_video".
 
  Files written for one video (tracko-anpr process):
    storage/processed/<name>/annotated.mp4

@@ -10,7 +10,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tracko_anpr.pipeline.annotate import VEHICLE_BOX_COLOR, draw_vehicles, format_vehicle_label
+from tracko_anpr.pipeline.annotate import (
+    VEHICLE_BOX_COLOR,
+    PlateLabel,
+    draw_vehicles,
+    format_vehicle_label,
+    output_size,
+    plate_boxes_by_frame,
+    render_annotated_video,
+)
 from tracko_anpr.pipeline.results import (
     format_timestamp,
     frame_time,
@@ -227,6 +235,99 @@ def test_writing_part_of_a_video_takes_only_that_much_audio(tmp_path: Path):
             writer.write(np.zeros((48, 64, 3), dtype=np.uint8))
     assert probe_video(output).frame_count == 10
     assert _audio_seconds(output) < 0.5
+
+
+# --- plate outlines without the detector, and the scaled-down annotated copy ----------------------
+
+
+def _moving_track(track_id: int, count: int, start=(100.0, 100.0, 300.0, 200.0), step=10.0):
+    """One vehicle whose box moves `step` pixels right each frame."""
+    x1, y1, x2, y2 = start
+    return [[vehicle(track_id, "Car", 0.9, (x1 + i * step, y1, x2 + i * step, y2))] for i in range(count)]
+
+
+def test_plate_boxes_follow_the_vehicle_between_the_sighted_frames():
+    frames = _moving_track(7, 5)
+    # Sighted in frames 0 and 4; the plate is lower on the vehicle in frame 4 than in frame 0.
+    sightings = {7: [(4, (240.0, 180.0, 280.0, 196.0)), (0, (150.0, 160.0, 190.0, 176.0))]}
+    located = plate_boxes_by_frame(frames, sightings)
+
+    assert sorted(located) == [0, 1, 2, 3, 4]
+    assert located[0][7] == pytest.approx((150.0, 160.0, 190.0, 176.0))
+    assert located[4][7] == pytest.approx((240.0, 180.0, 280.0, 196.0))
+    # Frame 2: the vehicle box is (120, 100, 320, 200); the fractions are the midpoint of the two sightings.
+    assert located[2][7] == pytest.approx((195.0, 170.0, 235.0, 186.0))
+
+
+def test_plate_boxes_are_held_outside_the_sighted_span_and_skip_small_vehicles():
+    frames = _moving_track(3, 6)
+    frames[5] = [vehicle(3, "Car", 0.9, (500.0, 100.0, 540.0, 120.0))]  # far away: 20 px tall
+    sightings = {3: [(2, (160.0, 150.0, 200.0, 170.0)), (3, (170.0, 150.0, 210.0, 170.0))]}
+    located = plate_boxes_by_frame(frames, sightings, min_height=50)
+
+    # Before the first sighting the fractions of frame 2 are used on frame 0's box (shifted by 20 px).
+    assert located[0][3] == pytest.approx((140.0, 150.0, 180.0, 170.0))
+    # After the last sighting the fractions of frame 3 are used on frame 4's box.
+    assert located[4][3] == pytest.approx((180.0, 150.0, 220.0, 170.0))
+    assert 5 not in located  # too small to outline
+    assert plate_boxes_by_frame(frames, {}) == {}
+    assert plate_boxes_by_frame(frames, {9: [(0, (0.0, 0.0, 1.0, 1.0))]}) == {}  # never tracked
+
+
+def test_output_size_scales_only_inputs_taller_than_the_limit():
+    assert output_size(3840, 2160, 1080) == (1920, 1080, 0.5)
+    assert output_size(2560, 1440, 1080) == (1920, 1080, 0.75)
+    assert output_size(1920, 1080, 1080) == (1920, 1080, 1.0)
+    assert output_size(1280, 720, 1080) == (1280, 720, 1.0)
+    assert output_size(3840, 2160, None) == (3840, 2160, 1.0)
+    assert output_size(1000, 1000, 333)[0] % 2 == 0
+
+
+def _test_video(path: Path, width: int, height: int, frames: int, fps: int = 30) -> VideoInfo:
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", f"color=c=black:size={width}x{height}:rate={fps}",
+        "-frames:v", str(frames), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
+    ]  # fmt: skip
+    subprocess.run(command, check=True)
+    return probe_video(path)
+
+
+def _greenish(pixel) -> bool:
+    blue, green, red = (int(value) for value in pixel)
+    return green > 120 and green > red + 40 and green > blue + 40
+
+
+@needs_ffmpeg
+def test_rendered_copy_is_scaled_down_to_max_height_with_its_boxes(tmp_path: Path):
+    info = _test_video(tmp_path / "source.mp4", 128, 96, 10)
+    frames = [[vehicle(1, "Car", 0.9, (32.0, 32.0, 112.0, 88.0))] for _ in range(10)]
+    plate_boxes = {index: {1: (60.0, 70.0, 90.0, 80.0)} for index in range(10)}
+    labels = {1: PlateLabel("KL07AB1234", 0.95, True)}
+    output = tmp_path / "annotated.mp4"
+
+    render = render_annotated_video(
+        info, frames, {1: "Car"}, output, plate_labels=labels, plate_boxes=plate_boxes, max_height=48
+    )
+
+    assert (render.width, render.height, render.frame_count) == (64, 48, 10)
+    written = probe_video(output)
+    assert (written.width, written.height, written.frame_count, written.fps) == (64, 48, 10, info.fps)
+    first = next(read_frames(output))
+    assert _greenish(first[40, 16])  # the vehicle's left edge, at half scale (x 32 -> 16, y 32..88 -> 16..44)
+    assert not _greenish(first[40, 8])  # nothing drawn outside the box
+
+
+@needs_ffmpeg
+def test_rendered_copy_keeps_the_input_size_when_it_is_not_taller_than_the_limit(tmp_path: Path):
+    info = _test_video(tmp_path / "source.mp4", 128, 96, 5)
+    frames = [[vehicle(1, "Car", 0.9, (32.0, 32.0, 112.0, 88.0))] for _ in range(5)]
+    output = tmp_path / "annotated.mp4"
+    render = render_annotated_video(info, frames, {1: "Car"}, output, max_height=1080)
+    assert (render.width, render.height, render.frame_count) == (128, 96, 5)
+    written = probe_video(output)
+    assert (written.width, written.height, written.frame_count) == (128, 96, 5)
+    assert _greenish(next(read_frames(output))[60, 32])
 
 
 # --- result files ----------------------------------------------------------------------------------

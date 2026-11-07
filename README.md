@@ -36,7 +36,7 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
 
    Health check without a browser: `curl -s http://localhost:8080/api/system/status` — `"ready": true`.
 
-5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer three processed videos in its selector (`clear`, `rope`, `zoomed-in`; 251 vehicles and 48 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 10 to 25 minutes.
+5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer three processed videos in its selector (`clear`, `rope`, `zoomed-in`; 251 vehicles and 48 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 2.5 to 11 minutes, a 1080p one about twice its length.
 
 **Recording new videos:** follow [RECORDING_GUIDE.md](RECORDING_GUIDE.md) — plate at least 130 px wide, camera in line with the traffic, 1080p at 30 fps. It is the biggest lever on how many plates get read.
 
@@ -78,7 +78,7 @@ This runs the whole pipeline over an MP4: vehicle detection and tracking, plate 
 
 Results go under `storage/`, in folders named after the video:
 
-- `storage/processed/<name>/annotated.mp4` — the video with every vehicle boxed and labelled, plates outlined in amber, and each number shown as confirmed (`KL10AB1234 (0.97)`) or `unconfirmed`. Same resolution, frame rate and frame count as the input, with the original audio.
+- `storage/processed/<name>/annotated.mp4` — the video with every vehicle boxed and labelled, plates outlined in amber, and each number shown as confirmed (`KL10AB1234 (0.97)`) or `unconfirmed`. Same frame rate and frame count as the input, with the original audio; inputs above 1080p are scaled down to 1080p for playback (the original video is untouched).
 - `storage/processed/<name>/results.json` — one record per track (type, when it was seen, plate decision and the reason for it), plus the summary, timings and settings.
 - `storage/processed/<name>/detections.csv` — one row per vehicle per frame.
 - `storage/processed/<name>/plates.csv` — one row per plate examined, with what the reader made of it.
@@ -122,7 +122,7 @@ uv run tracko-anpr track videos/clear.mp4
 
 This runs YOLO26m with the TrackTrack tracker over an MP4 and writes three files to `storage/processed/`:
 
-- `<name>_annotated.mp4` — the video with a box and a label such as `#T14 Motorcycle (0.63)` on every tracked vehicle, at the same resolution, frame rate and frame count as the input, with the original audio.
+- `<name>_annotated.mp4` — the video with a box and a label such as `#T14 Motorcycle (0.63)` on every tracked vehicle, at the same resolution, frame rate and frame count as the input, with the original audio (`track` keeps the input size; `process` scales the annotated copy down to 1080p).
 - `<name>_detections.csv` — one row per vehicle per frame, with its box in original-frame pixels.
 - `<name>_tracks.json` — one summary per track, plus the settings used, timings, speed and memory.
 

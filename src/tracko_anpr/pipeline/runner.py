@@ -29,12 +29,12 @@ from pathlib import Path
 import cv2
 
 from tracko_anpr.config import Settings
-from tracko_anpr.pipeline.annotate import PlateLabel, render_annotated_video
+from tracko_anpr.pipeline.annotate import PlateLabel, plate_boxes_by_frame, render_annotated_video
 from tracko_anpr.pipeline.cropping import Box, best_frames, box_area, crop_region
 from tracko_anpr.pipeline.ocr_client import OcrClient
 from tracko_anpr.pipeline.plates import PlateDetector, cut_plate
 from tracko_anpr.pipeline.results import frame_time, write_detections_csv
-from tracko_anpr.pipeline.rules import TrackRules, box_height, is_camera_car, is_countable
+from tracko_anpr.pipeline.rules import TrackRules, is_camera_car, is_countable
 from tracko_anpr.pipeline.tracking import VEHICLE_CLASSES, TrackingRun, VehicleTracker, format_track_id, track_video
 from tracko_anpr.pipeline.validation import (
     CONFIRMED,
@@ -102,6 +102,9 @@ class PipelineOptions:
     track_rules: TrackRules = field(default_factory=TrackRules)
     validation: ValidationRules = field(default_factory=ValidationRules)
     render_video: bool = True
+    annotated_max_height: int | None = 1080
+    """The annotated copy is scaled down to this height when the input is taller (None: never).
+    It is for playback only; detection, crops and results always use the original frames."""
     max_seconds: float | None = None
     """Only process the start of the video (for quick checks)."""
 
@@ -483,6 +486,7 @@ def run_pipeline(
     }
     hidden = frozenset(vehicle.track_id for vehicle in vehicles.values() if vehicle.camera_car)
     render_details = {}
+    annotated_video = None
     if options.render_video:
         labels = {
             vehicle.track_id: PlateLabel(
@@ -492,27 +496,13 @@ def run_pipeline(
             if vehicle.decision is not None and vehicle.decision.text
         }
         min_height = options.track_rules.min_height_fraction * info.height
-
-        def locate_plates(frame, frame_index: int, tracked: list[tuple[int, Box]]) -> dict[int, Box]:
-            """Find, in this frame, the plate of each vehicle that has a number to show."""
-            near = [(track_id, box) for track_id, box in tracked if box_height(box) >= min_height]
-            crops = [
-                (track_id, crop_region(frame, box, options.vehicle_padding, options.vehicle_padding))
-                for track_id, box in near
-            ]
-            crops = [(track_id, crop) for track_id, crop in crops if crop is not None]
-            if not crops:
-                return {}
-            found = detector.detect([crop.image for _, crop in crops])
-            boxes = countable_boxes(frame_index)
-            located: dict[int, Box] = {}
-            for (track_id, crop), plates in zip(crops, found, strict=True):
-                # Outline only a plate that is this vehicle's own, never a neighbour's.
-                in_frame = (crop.to_frame(plate.box) for plate in plates)
-                own = next((box for box in in_frame if plate_owner(box, track_id, boxes) == track_id), None)
-                if own is not None:
-                    located[track_id] = own
-            return located
+        # Outlines come from the plates found in stage 4 (already assigned to their own vehicle by
+        # `plate_owner`), followed through the other frames; the plate detector does not run again.
+        plate_boxes = plate_boxes_by_frame(
+            run.frames,
+            {track_id: [(s.frame, s.box) for s in vehicles[track_id].sightings] for track_id in labels},
+            min_height,
+        )
 
         files["annotated_video"] = out_dir / "annotated.mp4"
         render = render_annotated_video(
@@ -522,15 +512,16 @@ def run_pipeline(
             files["annotated_video"],
             lambda done, total: report("result_generation", done, total),
             plate_labels=labels,
-            locate_plates=locate_plates,
+            plate_boxes=plate_boxes,
             hidden_tracks=hidden,
+            max_height=options.annotated_max_height,
         )
         render_details = {
             "render_decode_s": round(render.decode_seconds, 2),
-            "render_locate_plates_s": round(render.locate_seconds, 2),
-            "render_draw_s": round(render.draw_seconds, 2),
+            "render_draw_s": round(render.draw_seconds, 2),  # includes scaling the frame down
             "render_encode_s": round(render.encode_seconds, 2),
         }
+        annotated_video = {"width": render.width, "height": render.height, "frame_count": render.frame_count}
 
     ordered = sorted(vehicles.values(), key=lambda vehicle: (vehicle.first_frame, vehicle.track_id))
     summary = summarize(ordered)
@@ -551,6 +542,7 @@ def run_pipeline(
             "duration_s": round(info.duration_s, 3),
         },
         "frames_processed": run.frame_count,
+        "annotated_video": annotated_video,
         "summary": summary,
         "timings": timings,
         "speed": {
