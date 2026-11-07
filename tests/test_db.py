@@ -225,3 +225,55 @@ def test_processing_durations_per_video(factory):
         store(session, a_result(video_info("one")))
         store(session, a_result(video_info("two")))
         assert metrics.processing_durations(session) == [("one", 200.0), ("two", 200.0)]
+
+
+# --- the Overview page's data --------------------------------------------------------------------
+
+
+def test_overview_cards_equal_direct_queries_and_the_chart_adds_up(factory):
+    from tracko_anpr.services import overview
+
+    with session_scope(factory) as session:
+        first = store(session, a_result(video_info("one")))
+        store(session, a_result(video_info("two")))
+        page = overview.overview(session)
+        assert page.selected.name == "two"  # the most recently processed video is selected by default
+        assert [v.name for v in page.processed_videos] == ["two", "one"]
+        # the cards, for the selected video, are the direct figures for that video
+        direct = metrics.summary(session, page.selected.id)
+        assert page.cards == direct and page.scope == "video"
+        assert page.cards.total_vehicles == 4 and page.cards.confirmed_plates == 2
+        # ...and across all videos when asked
+        everything = overview.overview(session, page.selected.id, scope="all")
+        assert everything.cards == metrics.summary(session) and everything.cards.total_vehicles == 8
+        assert everything.overall.videos_processed == 2
+        # the chart adds up to Total Vehicles of the selected video
+        assert sum(c for _, c in page.results.detections_over_time) == page.results.summary.total_vehicles == 4
+        # the timeline shows the completed job and the table its counted vehicles, newest first
+        assert page.job.status == "completed" and page.job.id == page.results.job_id
+        assert [r.detection.track_id for r in page.recent] == [7, 3, 2, 1]
+        # selecting the other video by id
+        other = overview.overview(session, first.video_id)
+        assert other.selected.name == "one"
+
+
+def test_overview_on_an_empty_database_has_empty_states_not_errors(factory):
+    from tracko_anpr.services import overview
+
+    with session_scope(factory) as session:
+        page = overview.overview(session)
+    assert page.processed_videos == [] and page.selected is None
+    assert page.cards.total_vehicles == 0 and page.cards.videos_processed == 0
+    assert page.results is None and page.job is None and page.recent == []
+
+
+def test_overview_ignores_videos_that_have_not_completed_and_unknown_ids(factory):
+    from tracko_anpr.services import overview
+
+    with session_scope(factory) as session:
+        video_row = register_video(session, video_info("pending"), ROOT, COMMAND_LINE)
+        create_job(session, video_row, PROCESSING)
+        assert overview.overview(session).selected is None
+        done = store(session, a_result(video_info("done")))
+        page = overview.overview(session, video_id=999)
+        assert page.selected is None and page.processed_videos[0].id == done.video_id

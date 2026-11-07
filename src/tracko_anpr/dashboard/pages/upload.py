@@ -7,12 +7,12 @@ every second from the job row the worker writes. A failed job shows its reason i
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 from nicegui import events, ui
 
 from tracko_anpr.dashboard.components.timeline import timeline
+from tracko_anpr.dashboard.format import human_duration, human_size, when
 from tracko_anpr.dashboard.layout import frame
 from tracko_anpr.dashboard.runtime import query, runtime
 from tracko_anpr.services import jobs, videos
@@ -20,29 +20,6 @@ from tracko_anpr.services.jobs import JobStatus
 from tracko_anpr.services.videos import MAX_UPLOAD_BYTES, InvalidVideo, VideoSummary
 
 POLL_SECONDS = 1.0
-
-
-def human_size(size: int | None) -> str:
-    if size is None:
-        return "—"
-    value = float(size)
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1024 or unit == "GB":
-            return f"{value:,.0f} {unit}" if unit in ("B", "KB") else f"{value:,.1f} {unit}"
-        value /= 1024
-    return f"{value:,.1f} GB"
-
-
-def human_duration(seconds: float | None) -> str:
-    if seconds is None:
-        return "—"
-    minutes, secs = divmod(int(round(seconds)), 60)
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
-
-
-def _when(moment: datetime | None) -> str:
-    return moment.astimezone().strftime("%d %b %Y, %H:%M") if moment else "—"
 
 
 class UploadPage:
@@ -141,7 +118,7 @@ class UploadPage:
                     ("Resolution", f"{video.width} × {video.height}"),
                     ("Duration", human_duration(video.duration_s)),
                     ("Frame rate", f"{video.fps_decimal:.2f} fps ({video.frame_count:,} frames)"),
-                    ("Uploaded", _when(video.created_at)),
+                    ("Uploaded", when(video.created_at)),
                     ("Upload status", "Stored and readable" if video.source == "upload" else "Registered from disk"),
                 ):
                     ui.label(key).classes("k")
@@ -151,7 +128,7 @@ class UploadPage:
                 label = (
                     "Processing…" if busy else "Process Video" if video.completed_job_id is None else "Process Again"
                 )
-                button = ui.button(label, icon="play_arrow", on_click=self.start).classes("tk-primary")
+                button = ui.button(label, color=None, icon="play_arrow", on_click=self.start).classes("tk-primary")
                 if busy:
                     button.disable()
                 if video.completed_job_id is not None:
@@ -190,11 +167,13 @@ class UploadPage:
                     with ui.row().classes("gap-2 mt-2"):
                         ui.button(
                             "View Analysis",
+                            color=None,
                             icon="play_circle",
                             on_click=lambda: ui.navigate.to(f"/?video={self.video.id}"),
                         ).classes("tk-primary")
                         ui.button(
                             "Download Annotated Video",
+                            color=None,
                             icon="download",
                             on_click=lambda: ui.navigate.to(
                                 f"/api/videos/{self.video.id}/download/annotated", new_tab=True
@@ -202,6 +181,7 @@ class UploadPage:
                         ).classes("tk-secondary")
                         ui.button(
                             "View Detections",
+                            color=None,
                             icon="list",
                             on_click=lambda: ui.navigate.to(f"/history?video={self.video.id}"),
                         ).classes("tk-secondary")
@@ -266,7 +246,7 @@ class UploadPage:
                     "format": f"{v.width}×{v.height} @ {v.fps_decimal:.0f} fps",
                     "duration": human_duration(v.duration_s),
                     "status": _status_text(v),
-                    "uploaded": _when(v.created_at),
+                    "uploaded": when(v.created_at),
                 }
                 for v in listed
             ]

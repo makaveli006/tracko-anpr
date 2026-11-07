@@ -11,7 +11,6 @@ from nicegui import ui
 from tracko_anpr.dashboard.layout import frame
 
 PENDING = (
-    ("/", "overview", "Overview", "Vehicle Detection, Tracking and Number Plate Recognition from Uploaded Videos", 12),
     ("/analysis", "analysis", "Video Analysis", "Original and annotated playback with track details", 13),
     ("/history", "history", "Detection History", "Every recognised number plate, across all videos", 13),
     ("/registry", "registry", "Demo Registry", "Demonstration Data Only — fictional vehicle records", 13),

@@ -17,7 +17,7 @@ Tick a phase when it is complete and merged into `development`.
 - [x] Phase 9 — Worker (done 2026-11-07; `tracko-anpr worker`, `enqueue`, `ingest`, `jobs`; crash recovery and the corrupt-file path verified against PostgreSQL)
 - [x] Phase 10 — Services and API (done 2026-11-07; `services/` shared layer, the eight endpoints plus status, summary, original, downloads, history + export, detail, images, registry, settings; `tracko-anpr web` with NiceGUI mounted; also the rotation fix for upright phone videos)
 - [x] Phase 11 — Dashboard shell and Upload & Process (done 2026-11-07; theme tokens, Inter served locally, header, sidebar with live status panel, video player component, Upload & Process page with real progress; verified in headless Chromium)
-- [ ] Phase 12 — Overview page
+- [x] Phase 12 — Overview page (done 2026-11-07; selector and scope switch, five cards, player, timeline, donut, coverage, recent detections with seek and details dialog, detections-over-time chart, empty states; figures tested against the queries)
 - [ ] Phase 13 — Remaining pages and registry
 - [ ] Phase 14 — Demo data and readiness
 

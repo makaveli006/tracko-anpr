@@ -859,6 +859,60 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      so the page never polled. Timers are now created once at
      page build and only switched on and off.
 
+ THE OVERVIEW (dashboard/pages/overview.py, Phase 12)
+
+ Data: one call, services/overview.py, so the page is thin
+ and the figures can be tested against the queries directly.
+   • Video selector: every video with a completed job, the
+     newest selected by default (?video=<id> picks one). It
+     drives the player, the timeline, the donut, the coverage
+     bar, the table and the chart.
+   • Scope switch "This video / All videos" for the five
+     cards only; the header card shows Processed: N Videos
+     and the last run's time across all videos.
+   • Cards: Total Vehicles, Recognized Plates with coverage
+     in green, Unique Tracks, Videos Processed, Avg.
+     Processing Time (mean of each video's latest run). A
+     line under them says coverage is not accuracy, or, in
+     the all-videos scope, what the cards and charts count.
+   • Video Analysis: the player component, annotated copy
+     by default, original on the switch, position kept.
+   • Processing Status: the seven-stage timeline of the
+     video's latest completed job with per-stage seconds.
+   • Vehicle Category Distribution: ECharts donut in the
+     design's four colours (Car green, Motorcycle yellow,
+     Bus amber, Truck red-orange), the total in the centre,
+     legend with icon, count and share.
+   • Recognition Coverage: thin green bar, percentage, and
+     "confirmed / counted vehicles with recognized number
+     plates", with the not-accuracy note.
+   • Recent Detections: the eight newest counted vehicles
+     (time, track, type with icon, number, confidence,
+     validation badge, plate thumbnail). A row click seeks
+     the video to half a second before the vehicle appears
+     and opens the details dialog: vehicle and plate crops,
+     the number, validation, confidence, agreement, reason,
+     every plate observation (frame, time, reading, reader
+     and detector confidence, plate width) and the fictional
+     registry match or "No match", with the disclaimer.
+     "View All" goes to Detection History for that video.
+   • Detections Over Time: ECharts line with a faint green
+     area, new vehicles per 10-second bucket of video time;
+     the buckets add up to Total Vehicles.
+   • Empty states: with nothing processed, the cards read 0,
+     the player, charts and table say so, and the selector
+     and scope switch are disabled; nothing is invented.
+
+ Verified 2026-11-07: cards equal metrics.summary for the
+ video and for all videos (tests); the chart's buckets sum
+ to Total Vehicles (tests); an empty database renders the
+ page (test and by hand); in headless Chromium on zoomed-in-2
+ the cards read 59 / 16 (27.1%) / 85 / 1 / 3 min 29 sec, the
+ all-videos scope 240 / 44 (18.3%) / 412 / 5 / 2 min 35 sec,
+ a row click moved the video to 1:46 and opened the dialog,
+ and switching Original / Annotated kept the position (42 s)
+ both ways, with no browser console errors.
+
 
 ══════════════════════════════════════════════════════════════
  FINAL DEPLOYMENT CONFIGURATION

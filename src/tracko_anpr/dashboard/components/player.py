@@ -32,8 +32,12 @@ class VideoPlayer:
             with ui.row().classes("w-full items-center justify-between no-wrap"):
                 ui.label("Video Analysis").classes("tk-card-title")
                 with ui.element("div").classes("tk-segmented"):
-                    self.original_button = ui.button("Original Video", on_click=lambda: self.switch("original"))
-                    self.annotated_button = ui.button("Annotated Video", on_click=lambda: self.switch("annotated"))
+                    self.original_button = ui.button(
+                        "Original Video", color=None, on_click=lambda: self.switch("original")
+                    )
+                    self.annotated_button = ui.button(
+                        "Annotated Video", color=None, on_click=lambda: self.switch("annotated")
+                    )
             self.frame = ui.element("div").classes("w-full tk-player")
             self.element: ui.video | None = None
         self.empty()
