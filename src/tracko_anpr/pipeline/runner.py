@@ -49,6 +49,31 @@ from tracko_anpr.pipeline.validation import (
 )
 from tracko_anpr.pipeline.video import VideoError, VideoInfo, probe_video, read_selected_frames
 
+
+def memory_peaks() -> dict[str, int]:
+    """Most memory this process has held so far: PyTorch's GPU memory and the process's RAM, in MiB.
+
+    Read at the end of a run so the figure covers every model that was loaded, not only the
+    first. The GPU figure is 0 without CUDA; the RAM figure is 0 where the platform cannot say.
+    """
+    gpu_mib = 0.0
+    ram_mib = 0.0
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            gpu_mib = torch.cuda.max_memory_reserved() / 2**20
+    except ImportError:
+        pass
+    try:
+        import resource
+
+        ram_mib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # Linux reports kilobytes
+    except ImportError:
+        pass
+    return {"gpu_pytorch_peak_mib": round(gpu_mib), "ram_peak_mib": round(ram_mib)}
+
+
 STAGES = (
     "video_uploaded",
     "vehicle_detection",
@@ -282,7 +307,6 @@ def run_pipeline(
         settings.tracker_lost_seconds,
     ) as tracker:
         run: TrackingRun = track_video(info, tracker, max_frames, tracking_progress)
-        gpu_peak_mib = tracker.gpu_memory_peak_mib()
         tracker_details = {
             "vehicle_weights": settings.vehicle_weights.name,
             "vehicle_image_size": tracker.image_size,
@@ -303,7 +327,13 @@ def run_pipeline(
     vehicles: dict[int, VehicleRecord] = {}
     for track_id, summary in run.registry.tracks.items():
         observations = history[track_id]
-        camera_car = is_camera_car(observations, info.width, info.height, fps, options.track_rules)
+
+        def others_in_frame(frame_index: int, own: int = track_id) -> list[Box]:
+            return [vehicle.box for vehicle in run.frames[frame_index] if vehicle.track_id != own]
+
+        camera_car = is_camera_car(
+            observations, info.width, info.height, fps, options.track_rules, others_in_frame=others_in_frame
+        )
         vehicles[track_id] = VehicleRecord(
             track_id=track_id,
             class_name=summary.class_name,
@@ -495,7 +525,7 @@ def run_pipeline(
             "times_real_time": round(run.frame_count / fps / timings["total_s"], 2),
             "ocr_ms_per_plate": round(1000 * timings["ocr_s"] / len(sightings), 1) if sightings else None,
         },
-        "memory": {"gpu_pytorch_peak_mib": round(gpu_peak_mib)},
+        "memory": memory_peaks(),
         "settings": tracker_details
         | {
             "plate_weights": settings.plate_weights.name,

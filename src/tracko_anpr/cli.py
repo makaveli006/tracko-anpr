@@ -28,19 +28,11 @@ def _progress_printer(label: str, every_seconds: float = 2.0):
     return report
 
 
-def _peak_ram_mib() -> float:
-    """Most memory this process has used, in MiB; 0 where the platform cannot say."""
-    try:
-        import resource
-    except ImportError:
-        return 0.0
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # Linux reports kilobytes
-
-
 def _run_track(args: argparse.Namespace) -> int:
     # Imported here so `tracko-anpr --help` does not load PyTorch.
     from tracko_anpr.pipeline.annotate import render_annotated_video
     from tracko_anpr.pipeline.results import write_detections_csv, write_tracks_json
+    from tracko_anpr.pipeline.runner import memory_peaks
     from tracko_anpr.pipeline.tracking import VehicleTracker, track_video
 
     settings = get_settings()
@@ -70,7 +62,6 @@ def _run_track(args: argparse.Namespace) -> int:
             f"lost tracks kept {tracker.track_buffer} frames)"
         )
         run = track_video(info, tracker, max_frames, _progress_printer("tracking"))
-        gpu_peak = tracker.gpu_memory_peak_mib()
         tracker_details = {
             "weights": settings.vehicle_weights.name,
             "image_size": tracker.image_size,
@@ -108,7 +99,7 @@ def _run_track(args: argparse.Namespace) -> int:
         "overall_fps": round(run.frame_count / total_seconds, 1) if total_seconds else 0.0,
         "times_real_time": round(run.frame_count / info.fps_float / total_seconds, 2) if total_seconds else 0.0,
     }
-    memory = {"gpu_pytorch_peak_mib": round(gpu_peak), "ram_peak_mib": round(_peak_ram_mib())}
+    memory = memory_peaks()
 
     write_detections_csv(csv_out, info, run)
     write_tracks_json(

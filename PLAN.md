@@ -12,7 +12,7 @@ Tick a phase when it is complete and merged into `development`.
 - [x] Phase 4 — Plate detector comparison (done 2026-11-06; gate B: `sentry-26s`, no fine-tuning; see `tools/plate_detector_eval/RESULTS.md`)
 - [x] Phase 5 — OCR service (done 2026-11-06)
 - [x] Phase 6 — Validation, full pipeline, final video (done 2026-11-06; `tracko-anpr process`, results in "Measured — full pipeline" in `ARCHITECTURE.md`)
-- [ ] Phase 7 — Acceptance and freeze (go/no-go C)
+- [x] Phase 7 — Acceptance and freeze (done 2026-11-06; eight clips run, settings frozen, camera-car cabin rule added; results and the full-video time table in "Acceptance run and frozen settings" in `ARCHITECTURE.md`; gate C, which full videos go in the demo, is the user's decision and is settled when Phase 14 starts)
 - [ ] Phase 8 — Database
 - [ ] Phase 9 — Worker
 - [ ] Phase 10 — Services and API

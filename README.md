@@ -24,7 +24,7 @@ Results go under `storage/`, in folders named after the video:
 
 Options: `--max-seconds N` processes only the first N seconds; `--no-video` skips the annotated video; `--name NAME` chooses the folder name. Processing the same video again replaces its earlier results.
 
-A 2-minute clip takes about six to ten minutes. The rules that decide what counts as a vehicle and when a number is confirmed are in section 10 of `ARCHITECTURE.md`.
+A 2-minute clip takes about three and a half minutes at 1080p and up to eight and a half at 2K; a full-length video takes roughly two to four times its own length (the table is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`). The rules that decide what counts as a vehicle and when a number is confirmed are in section 10 of `ARCHITECTURE.md`, and the settings are frozen as of Phase 7.
 
 ### Detect and track vehicles
 

@@ -74,3 +74,46 @@ def test_mostly_on_the_bottom_edge_is_enough():
     bonnet = track(900, (300.0, 800.0, 1700.0, 1080.0))
     lifted = track(100, (300.0, 780.0, 1700.0, 1060.0), start=900)  # detector drew it slightly short
     assert is_camera_car(bonnet + lifted, 1920, 1080, 30.0)
+
+
+# --- the camera car's cabin, seen from inside ----------------------------------------------------
+
+# From truck_part02: the cab's door pillar, window and mirror boxed as a "car" for 39 seconds,
+# with the vehicles on the road seen through it.
+CABIN = (570.0, 0.0, 1470.0, 920.0)  # 47% of a 1920-wide frame
+CAR_THROUGH_WINDOW = (1250.0, 180.0, 1400.0, 300.0)
+CAR_BESIDE = (1300.0, 400.0, 1700.0, 700.0)  # sticks out past the cabin box
+BUS_AHEAD = (500.0, 150.0, 1400.0, 900.0)  # as wide as the cabin, but nothing is wholly inside it
+
+
+def others(*boxes):
+    return lambda frame: list(boxes)
+
+
+def test_a_very_wide_track_with_other_vehicles_seen_through_it_is_the_camera_car():
+    assert is_camera_car(track(150, CABIN), 1920, 1080, 30.0, others_in_frame=others(CAR_THROUGH_WINDOW))
+
+
+def test_the_cabin_only_needs_other_vehicles_inside_it_some_of_the_time():
+    def sometimes(frame):
+        return [CAR_THROUGH_WINDOW] if frame % 5 == 0 else []  # one frame in five
+
+    assert is_camera_car(track(150, CABIN), 1920, 1080, 30.0, others_in_frame=sometimes)
+
+
+def test_a_wide_vehicle_ahead_with_nothing_wholly_inside_it_is_not_the_camera_car():
+    assert not is_camera_car(track(150, BUS_AHEAD), 1920, 1080, 30.0, others_in_frame=others(CAR_BESIDE))
+
+
+def test_a_vehicle_narrower_than_two_fifths_of_the_frame_is_not_the_cabin():
+    van = (700.0, 300.0, 1300.0, 800.0)  # 31% wide, with a motorcycle wholly in front of it
+    motorcycle = (900.0, 500.0, 1000.0, 750.0)
+    assert not is_camera_car(track(150, van), 1920, 1080, 30.0, others_in_frame=others(motorcycle))
+
+
+def test_the_cabin_must_be_in_view_for_a_few_seconds():
+    assert not is_camera_car(track(60, CABIN), 1920, 1080, 30.0, others_in_frame=others(CAR_THROUGH_WINDOW))
+
+
+def test_without_the_other_boxes_only_the_bonnet_shape_is_checked():
+    assert not is_camera_car(track(150, CABIN), 1920, 1080, 30.0)

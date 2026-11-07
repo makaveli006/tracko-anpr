@@ -69,7 +69,6 @@ class VehicleTracker:
         if not weights.is_file():
             raise FileNotFoundError(f"Vehicle weights not found: {weights}. See 'Model Files' in ARCHITECTURE.md.")
 
-        self._torch = torch
         self.on_gpu = torch.cuda.is_available()
         self.image_size = image_size
         self.confidence = confidence
@@ -118,12 +117,6 @@ class VehicleTracker:
                 continue
             vehicles.append(TrackedVehicle(track_id, class_name, float(confidence), tuple(box)))
         return vehicles
-
-    def gpu_memory_peak_mib(self) -> float:
-        """Most GPU memory PyTorch held at once since this tracker was created; 0 on CPU."""
-        if not self.on_gpu:
-            return 0.0
-        return self._torch.cuda.max_memory_reserved() / 2**20
 
     def close(self) -> None:
         self._tracker_config.unlink(missing_ok=True)

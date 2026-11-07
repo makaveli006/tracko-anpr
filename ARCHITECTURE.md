@@ -358,10 +358,18 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      least 6% of the frame height tall (65 px at 1080p).
      Sizes are fractions and times are seconds, so the rule
      means the same at any resolution and frame rate.
-   • Not the camera car's own bonnet or dashboard: a track
-     10 seconds or longer, wide (a quarter of the frame),
-     resting on the bottom edge 80% of the time. It is
-     dropped from the counts and not drawn.
+   • Not the camera car itself. Two shapes are recognised:
+     its bonnet (a track 10 seconds or longer, a quarter of
+     the frame wide, resting on the bottom edge 80% of the
+     time) and, when the camera is inside the cab, its own
+     door pillar and window boxed as a "car" (a track 3
+     seconds or longer, at least two fifths of the frame
+     wide, with another vehicle's whole box inside it in at
+     least 10% of its frames, because the traffic is seen
+     through it). Both are dropped from the counts and not
+     drawn. Measured on 2026-11-06: every cabin track was at
+     least 43% of the frame wide and no real vehicle more
+     than 33%.
    • Not a repeat: a later track with the same confirmed
      number as an earlier one, not in view at the same time,
      is the same vehicle under a new track number. It keeps
@@ -1009,6 +1017,131 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Run it:
    uv run tracko-anpr process videos/clips/<video>/<piece>.mp4
+══════════════════════════════════════════════════════════════
+
+
+══════════════════════════════════════════════════════════════
+ ACCEPTANCE RUN AND FROZEN SETTINGS (Phase 7, 2026-11-06)
+══════════════════════════════════════════════════════════════
+
+ One 2-minute clip from each of the eight source videos was
+ run through the whole pipeline with the settings below, which
+ are now frozen: changing any of them later means processing
+ every demo video again. Memory was sampled from outside the
+ program every two seconds, so it includes the reader process.
+
+ Clip                Format         Tracks  Vehicles  Confirmed  Unconf.  Not det.  Coverage
+ ──────────────────────────────────────────────────────────────────────────────────────────
+ kochi-city_part05   1080p 29.97     303     196         5        138       53       2.6%
+ kochi_part02        2K    59.94     266     173        44        102       27      25.4%
+ kozhikode_part03    2K    30        187     123        10         91       22       8.1%
+ kozikode-4k_part03  1080p 30        167     116         5         81       30       4.3%
+ mavoor_part02       1080p 60        245     183        13         95       75       7.1%
+ ooty_part03         1080p 50        115      63         2         42       19       3.2%
+ trafiic_part01      1080p 29.97     182      91         3         43       45       3.3%
+ truck_part02        1080p 60        430     216         0        108      108       0.0%
+
+ "Vehicles" is tracks that count (Total Vehicles); coverage is
+ confirmed ÷ vehicles and is not accuracy. ooty and truck are
+ after the cabin rule below (7 and 8 cabin tracks removed).
+
+ Time in seconds, and speed:
+
+ Clip                Track  Plates  Read  Video  Total  Track fps  Overall fps  vs real time
+ ──────────────────────────────────────────────────────────────────────────────────────────
+ kochi-city_part05    114     13     31     67    225      45         16.0        0.53x
+ kochi_part02         252     23     22    201    499      34         14.5        0.24x
+ kozhikode_part03     154     18     23    106    301      30         12.4        0.41x
+ kozikode-4k_part03   107     11     25     63    206      44         17.6        0.59x
+ mavoor_part02        186     14     24    129    353      46         20.4        0.34x
+ ooty_part03          157     10     22    104    294      47         20.2        0.40x
+ trafiic_part01        99      9     21     66    195      48         18.9        0.63x
+ truck_part02         169     14     23    102    308      50         23.4        0.39x
+
+ "Read" includes about 20 seconds of reader start-up. Of the
+ "Video" time, 15 to 127 seconds went on locating plates to
+ outline them (more plates in view, more time).
+
+ MEMORY
+ • Main process: PyTorch's GPU peak was 1,646 MiB on every
+   clip (the plate detector on a batch of 32 cut-outs is the
+   high point, not the vehicle detector), and 2.2 to 2.5 GB
+   of RAM.
+ • Whole machine while a run was going: GPU use rose by
+   3.4 GB over idle on every clip (main process plus the
+   reader), and RAM by 2.9 to 4.0 GB. WSL has 15 GB, so a
+   run leaves room for PostgreSQL and the web app.
+
+ WHAT THE FULL-LENGTH VIDEOS WOULD TAKE
+ At each clip's measured overall speed, applied to the whole
+ video it was cut from:
+
+ Video          Format         Length    Estimated processing
+ ────────────────────────────────────────────────────────────
+ trafiic        1080p 29.97     4.6 min      7 min
+ truck          1080p 60        5.2 min     14 min
+ mavoor         1080p 60       10.5 min     31 min
+ ooty           1080p 50       14.1 min     35 min
+ kochi-city     1080p 29.97    25.6 min     48 min
+ kochi          2K    59.94    13.3 min     55 min
+ kozikode-4k    1080p 30       40.6 min     69 min
+ kozhikode      2K    30       40.6 min     98 min
+ All eight together                         about 6 hours
+
+ Estimates, not measurements: a full video is one job, and
+ the clips show run-to-run variation of about 20% in the
+ tracking stage with unchanged code. kozhikode and
+ kozikode-4k are the same footage; the 2K copy found twice
+ the confirmed plates (10 against 5) at 1.4 times the cost.
+
+ FROZEN SETTINGS (results.json "settings" records them per run)
+ Vehicle detector    yolo26m.pt, input 1536, FP16, confidence 0.1,
+                     four classes
+ Tracker             TrackTrack, lost tracks kept 1.0 s (frames
+                     scaled to the video's frame rate)
+ Plate detector      sentry-26s.safetensors, input 640,
+                     confidence 0.25
+ Frames per vehicle  6, at least 0.15 s apart, where the box
+                     is largest and not cut off
+ Vehicle cut-out     4% margin around the box
+ Counts as vehicle   followed 0.5 s or more, at some point 6%
+                     of the frame height or taller
+ Camera car          bonnet: 10 s or more, 25% of the frame
+                     wide, on the bottom edge 80% of the time;
+                     cabin: 3 s or more, 40% wide, another
+                     vehicle wholly inside it in 10% of frames
+ Reading threshold   readings under 0.6 confidence do not vote
+ Confirmed           valid format, 2 or more agreeing frames,
+                     60% of the confidence-weighted votes, one
+                     reading 0.85 or higher; no number held by
+                     two vehicles in view at once
+ Plate formats       standard (state code, 1 to 2 district
+                     digits, 0 to 3 series letters without I
+                     or O, 1 to 4 digits) and BH series
+
+ CHECKED BY EYE
+ • Camera car, bonnet shape: trafiic_part01 flagged one
+   track, the camera car's white bonnet in the bottom-right
+   corner. Correct.
+ • Camera car, cabin shape (new in Phase 7): in ooty and
+   truck the camera is inside the cab, and the detector
+   boxed the door pillar, window and mirror as a "car" for
+   up to 39 seconds at a time, seven and eight tracks in all.
+   None rested on the bottom edge, so the bonnet rule missed
+   them. The cabin rule removed exactly those tracks and no
+   real vehicle, checked track by track and in the videos.
+ • truck_part02 confirmed nothing because its plates are too
+   small to read from a high cab: the median plate found was
+   38 px wide and 78% were under 60 px, where the reader
+   almost never succeeds. The 25 confident readings disagree
+   with each other. That is the known limit of small plates,
+   not a fault in the pipeline.
+ • Low coverage on dashcam footage is expected: most tracked
+   vehicles are seen from the side, cut off by the frame
+   edge, or too far away to show a readable plate.
+
+ GATE C — which full videos go in the demo is the user's
+ decision, made with the table above.
 ══════════════════════════════════════════════════════════════
 
 
