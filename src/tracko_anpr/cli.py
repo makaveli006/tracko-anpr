@@ -440,6 +440,39 @@ def _run_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_reset_data(args: argparse.Namespace) -> int:
+    """Delete every video, job, detection and registry record, and every file under storage/."""
+    import shutil
+
+    from sqlalchemy import delete, func, select
+
+    from tracko_anpr.db.models import AppSetting, DemoRegistryEntry, ProcessingJob, Video
+    from tracko_anpr.db.session import make_session_factory, session_scope
+
+    settings = get_settings()
+    if not args.yes:
+        print("This deletes all processed results, uploads, crops and the demo registry. Run again with --yes.")
+        return 1
+    with session_scope(make_session_factory(_open_database(settings))) as session:
+        videos = session.scalar(select(func.count()).select_from(Video))
+        jobs = session.scalar(select(func.count()).select_from(ProcessingJob))
+        session.execute(delete(Video))  # jobs, tracks, observations and events go with it (ON DELETE CASCADE)
+        session.execute(delete(DemoRegistryEntry))
+        session.execute(delete(AppSetting))
+    removed = 0
+    for folder in (settings.uploads_dir, settings.processed_dir, settings.vehicle_crops_dir, settings.plate_crops_dir):
+        for item in folder.iterdir() if folder.is_dir() else []:
+            if item.name == ".gitkeep":
+                continue
+            shutil.rmtree(item, ignore_errors=True) if item.is_dir() else item.unlink(missing_ok=True)
+            removed += 1
+    print(
+        f"Deleted {videos} videos and {jobs} jobs with their results, the demo registry, "
+        f"and {removed} items under storage/."
+    )
+    return 0
+
+
 def _run_seed_registry(args: argparse.Namespace) -> int:
     """Fill the FICTIONAL demonstration registry from the plates recognized so far."""
     from tracko_anpr.db.session import make_session_factory, session_scope
@@ -520,6 +553,10 @@ def build_parser() -> argparse.ArgumentParser:
     jobs = commands.add_parser("jobs", help="List processing jobs, newest last.")
     jobs.add_argument("--limit", type=int, default=20)
     jobs.set_defaults(handler=_run_jobs)
+
+    reset = commands.add_parser("reset-data", help="Delete all results, uploads, crops and the demo registry.")
+    reset.add_argument("--yes", action="store_true", help="Really do it.")
+    reset.set_defaults(handler=_run_reset_data)
 
     seed = commands.add_parser(
         "seed-registry", help="Generate the FICTIONAL demo registry from a share of the recognized plates."

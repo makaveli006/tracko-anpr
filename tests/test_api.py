@@ -19,7 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from tracko_anpr.api.app import create_app
 from tracko_anpr.config import load_settings
-from tracko_anpr.db.models import COMMAND_LINE, PROCESSING, Base, DemoRegistryEntry
+from tracko_anpr.db.models import COMMAND_LINE, PROCESSING, Base, DemoRegistryEntry, Video
 from tracko_anpr.db.session import session_scope
 from tracko_anpr.db.store import create_job, register_video, store_result
 from tracko_anpr.services.readiness import record_worker_heartbeat
@@ -393,3 +393,23 @@ def test_the_registry_seeder_makes_matches_and_non_matches_and_is_repeatable(app
         assert all(not n.match for n in registry.recognized_numbers(session))
         record = registry.lookup(session, "kl07ab1234")
         assert record is None
+
+
+def test_a_busy_worker_is_alive_even_when_a_stage_reports_nothing_for_half_a_minute(app, settings):
+    from datetime import UTC, datetime, timedelta
+
+    from tracko_anpr.db.models import ProcessingJob
+    from tracko_anpr.services.readiness import worker_check
+
+    video_id = stored_run(app, settings)
+    with session_scope(app.state.session_factory) as session:
+        video_row = session.get(Video, video_id)
+        job = create_job(session, video_row, PROCESSING)
+        job.worker_id = "busy-1"
+        job.heartbeat_at = datetime.now(UTC) - timedelta(seconds=40)
+        session.flush()
+        check = worker_check(session)
+        assert check.ok and "processing job" in check.detail
+        session.get(ProcessingJob, job.id).heartbeat_at = datetime.now(UTC) - timedelta(seconds=90)
+        session.flush()
+        assert not worker_check(session).ok

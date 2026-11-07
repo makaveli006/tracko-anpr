@@ -19,7 +19,7 @@ Tick a phase when it is complete and merged into `development`.
 - [x] Phase 11 — Dashboard shell and Upload & Process (done 2026-11-07; theme tokens, Inter served locally, header, sidebar with live status panel, video player component, Upload & Process page with real progress; verified in headless Chromium)
 - [x] Phase 12 — Overview page (done 2026-11-07; selector and scope switch, five cards, player, timeline, donut, coverage, recent detections with seek and details dialog, detections-over-time chart, empty states; figures tested against the queries)
 - [x] Phase 13 — Remaining pages and registry (done 2026-11-07; Video Analysis, Detection History with export, Demo Registry with `seed-registry`, Analytics, Settings; whole journey clicked through in headless Chromium)
-- [ ] Phase 14 — Demo data and readiness
+- [x] Phase 14 — Demo data and readiness (done 2026-11-07; five demo videos processed (portrait-narzo excluded by the user), registry seeded, backup/restore proved, runbook in README, cold start after `wsl --shutdown` and offline check rehearsed)
 
 ## Context
 

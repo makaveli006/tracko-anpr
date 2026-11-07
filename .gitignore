@@ -36,3 +36,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+
+# Backups made by scripts/backup.sh (database dump and storage archive)
+backups/

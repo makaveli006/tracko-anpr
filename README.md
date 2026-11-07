@@ -2,6 +2,66 @@
 
 Proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design and [PLAN.md](PLAN.md) for the build plan and progress.
 
+## Demo day: starting the system from cold
+
+Everything runs inside WSL (Ubuntu 24.04). Open a WSL terminal (`wsl` in PowerShell) and go to the project:
+
+```bash
+cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
+```
+
+1. **Database.** The PostgreSQL container restarts by itself when WSL starts. Check, and start it if it is not there:
+
+   ```bash
+   docker compose ps                 # should say "healthy"; if nothing is listed:
+   docker compose up -d && sleep 5 && docker compose ps
+   uv run alembic upgrade head       # no-op when the tables are current
+   ```
+
+2. **Worker** (its own terminal; it stays in the foreground and prints what it does):
+
+   ```bash
+   uv run tracko-anpr worker
+   ```
+
+   The first job after a start takes about 20 seconds longer while the plate reader loads.
+
+3. **Web app** (a second terminal):
+
+   ```bash
+   uv run tracko-anpr web
+   ```
+
+4. **Browser.** On the Windows side open **http://localhost:8080/** (WSL forwards localhost). The status panel at the bottom of the sidebar must say **System Ready** in green. If it says "Attention needed", it names what is missing: usually the worker (step 2) or the database (step 1).
+
+   Health check without a browser: `curl -s http://localhost:8080/api/system/status` — `"ready": true`.
+
+5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer five processed videos in its selector (`clear`, `portrait`, `portrait-new`, `rope`, `zoomed-in`; 434 vehicles and 90 confirmed plates in all). `portrait-narzo.mp4` is not part of the demo and is left unprocessed on purpose. If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 10 to 25 minutes.
+
+Nothing on any page is fetched from the internet (fonts, charts and icons are served by the app), so the demo works with the network unplugged. The database does not need the network either.
+
+Stopping: Ctrl+C in each terminal (the worker finishes its current job first; Ctrl+C again interrupts it), and `docker compose down` only if the container should stop too — the data stays.
+
+### Backup and restore
+
+```bash
+scripts/backup.sh                      # -> backups/<date-time>/ (database dump + storage archive)
+scripts/restore.sh backups/<date-time> # replaces the database and storage/ with that backup
+```
+
+Stop the worker and the web app before restoring. The source videos in `videos/` are not part of the backup: keep that folder. `backups/` is git-ignored. If a restore ever fails, `uv run tracko-anpr reset-data --yes` empties everything and the videos can be queued again with `uv run tracko-anpr enqueue videos/<name>.mp4`.
+
+### If something is wrong on the day
+
+| Symptom | What to do |
+|---|---|
+| Status panel: "worker … has probably stopped" | Start the worker (step 2). |
+| Status panel: database not reachable | `docker compose up -d`; wait for "healthy". |
+| Status panel: database not migrated | `uv run alembic upgrade head`. |
+| Browser cannot reach localhost:8080 | Is `tracko-anpr web` running? Try `http://127.0.0.1:8080/`; failing that, the WSL address from `hostname -I` inside WSL. |
+| An upload stays "Queued" | The worker is not running, or is busy with an earlier job; `uv run tracko-anpr jobs` shows the queue. |
+| A job is "Failed" | The reason is on the Upload page and in `uv run tracko-anpr jobs`; a damaged file says so. |
+
 ## Usage
 
 Run from the project root, in WSL.

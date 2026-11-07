@@ -22,7 +22,9 @@ from tracko_anpr.db.session import current_revision
 
 WORKER_HEARTBEAT_KEY = "worker_heartbeat"
 WORKER_ALIVE_SECONDS = 15
-"""An idle worker writes its heartbeat every poll (2 s); on a job, the job's heartbeat is written every 2 s."""
+"""An idle worker writes its heartbeat every poll (2 s)."""
+BUSY_WORKER_ALIVE_SECONDS = 60
+"""On a job the heartbeat comes with progress reports, which can pause for the reader's start-up or a plate batch."""
 
 
 @dataclass(frozen=True)
@@ -66,16 +68,22 @@ def worker_check(session: Session, now: datetime | None = None) -> Check:
     running = session.scalar(
         select(ProcessingJob).where(ProcessingJob.status == PROCESSING).order_by(ProcessingJob.heartbeat_at.desc())
     )
+    allowed = WORKER_ALIVE_SECONDS
+    busy = ""
     if running is not None and running.heartbeat_at is not None:
         beat = running.heartbeat_at if running.heartbeat_at.tzinfo else running.heartbeat_at.replace(tzinfo=UTC)
         if latest is None or beat > latest:
             latest, who = beat, running.worker_id or who
+            # On a job the heartbeat comes with progress, and some stretches report none for a while
+            # (the reader's 20-second start-up, a batch of plates): allow the job's own stall limit.
+            allowed = BUSY_WORKER_ALIVE_SECONDS
+            busy = f", processing job {running.id}"
     if latest is None:
         return Check("worker", False, "No worker has ever reported. Start one: uv run tracko-anpr worker")
     age = (now - latest).total_seconds()
-    if age > WORKER_ALIVE_SECONDS:
+    if age > allowed:
         return Check("worker", False, f"Worker {who} last reported {age:.0f} s ago; it has probably stopped.")
-    return Check("worker", True, f"Worker {who} reported {age:.0f} s ago.")
+    return Check("worker", True, f"Worker {who} reported {age:.0f} s ago{busy}.")
 
 
 def database_check(engine: Engine) -> Check:

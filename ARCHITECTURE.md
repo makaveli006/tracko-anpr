@@ -967,6 +967,59 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  POC, and a value stored through the API would be shown
  beside the value the pipeline runs with.
 
+ DEMO DATA AND READINESS (Phase 14, 2026-11-07)
+
+ The test runs were cleared (tracko-anpr reset-data --yes)
+ and the demo videos processed through the worker, with the
+ frozen settings. portrait-narzo.mp4 is excluded by the
+ user's decision; the file stays in videos/.
+
+ Video         Format          Length  Processing  Tracks  Vehicles  Confirmed  Coverage
+ ────────────────────────────────────────────────────────────────────────────────────────
+ zoomed-in     1080p 30         1:50    3 min 33 s    85       59        16      27.1%
+ rope          4K 30            0:57    3 min 14 s    12        7         2      28.6%
+ clear         4K 60            2:25   15 min 44 s   269      185        30      16.2%
+ portrait-new  4K upright 30    1:45    8 min 10 s    79       68        14      20.6%
+ portrait      4K upright 30    3:42   16 min 57 s   129      115        28      24.3%
+ All five                      10:39   47 min 38 s   574      434        90      20.7%
+
+ By type: Car 113, Motorcycle 270, Bus 5, Truck 46. Plate
+ status: 90 confirmed, 301 unconfirmed, 43 with no plate
+ found. Inference latency over all frames: 69 ms per frame
+ for detection and tracking (4K decoding is the cost: 35 ms
+ at 1080p, 53 to 97 ms at 4K), 20 ms per plate read.
+ Processing ran at 0.15x to 0.52x real time; the 4K videos
+ took 4.5 to 6.5 times their length, half of it writing the
+ 4K annotated copy (locating plates again in every frame and
+ encoding 3840x2160). Coverage is not accuracy.
+
+ Registry: tracko-anpr seed-registry --reset made 40
+ fictional records for 90 confirmed numbers plus 4 for
+ numbers seen in no video (44 in all), so the Demo Registry
+ page shows both matches and non-matches.
+
+ Backup: scripts/backup.sh wrote backups/20261107-034329
+ (database.dump 144 KB, storage.tar 2.5 GB). Proved by
+ wiping everything with reset-data and restoring with
+ scripts/restore.sh: every row count and figure identical,
+ every folder and file back.
+
+ Cold start: after `wsl --shutdown`, following only the
+ README's "Demo day" steps, the container was up on its own
+ 5 seconds after WSL started, the migration was a no-op, and
+ 15 seconds later /api/system/status said ready on all six
+ checks with the demo data in place.
+
+ Offline: with every request to any host other than the app
+ blocked, all seven pages rendered with the Inter font, the
+ icons and the charts; no request left the machine.
+
+ Readiness checks also fixed one thing: the status panel
+ flickered amber while the worker was busy, because a job's
+ heartbeat comes with progress reports and the reader's
+ start-up and a plate batch report nothing for 20 seconds or
+ more; a busy worker is now allowed 60 s between reports.
+
  Verified 2026-11-07 in headless Chromium, the whole journey
  clicked through the sidebar: 59 tracked vehicles on Video
  Analysis; History 240 counted vehicles → 44 confirmed → 42
