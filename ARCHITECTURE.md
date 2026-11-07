@@ -116,6 +116,80 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    GET  /api/videos/{id}/analytics
    GET  /api/videos/{id}/annotated
 
+ HOW THE API IS BUILT (api/, services/, Phase 10)
+
+ One process: `tracko-anpr web` runs FastAPI with the NiceGUI
+ dashboard mounted on it (ui.run_with). Routes are thin;
+ every one calls a function in tracko_anpr/services/, and
+ the dashboard pages call the same functions, so the two
+ could be split into separate services later without logic
+ moving. Services return dataclasses, which FastAPI
+ serialises as they are. Each request is one database
+ transaction (api/app.py, get_session).
+
+ The eight endpoints above, and what the dashboard needs
+ beyond them:
+
+   GET  /api/system/status      the sidebar's "System Ready"
+                                panel: database (reachable and
+                                migrated), worker (reported in
+                                the last 15 s, idle or on a
+                                job), GPU (nvidia-smi), model
+                                files, reader installed,
+                                FFmpeg. ready is true only
+                                when all but the GPU line are
+                                ok; never a false green.
+   GET  /api/summary?video_id=  the five Overview cards, for
+                                one video or all
+   POST /api/videos/ingest      register a file already on
+                                disk, without copying (too
+                                large to upload)
+   GET  /api/videos/{id}/original      the uploaded video
+   GET  /api/videos/{id}/download/{k}  annotated | results |
+                                       detections | plates,
+                                       as attachments
+   GET  /api/analytics          Analytics across all videos
+   GET  /api/detections         Detection History: every
+                                video, filtered by video,
+                                status, type, number search;
+                                sorted; paged
+   GET  /api/detections/export.csv     the same rows as CSV
+   GET  /api/detections/{track_pk}     one detection in full,
+                                with every plate observation
+                                (the multi-frame evidence) and
+                                its fictional registry match
+   GET  /api/images/{path}      vehicle and plate crops, only
+                                from storage/vehicle_crops and
+                                storage/plate_crops
+   GET  /api/registry[/{number}]  the FICTIONAL registry, with
+                                its disclaimer in every answer
+   GET/PUT /api/settings        the Settings page's values
+   GET  /api/jobs               the queue
+
+ Rules the routes enforce:
+   • Uploads: .mp4 only, and the file must be readable by
+     ffprobe after it is written; otherwise it is deleted and
+     the answer is 400 with a sentence saying why. A second
+     upload of the same name becomes name-2. Uploads over 8 GB
+     are refused (use ingest).
+   • Videos stream with HTTP range support (206 Partial
+     Content), which is what lets the player seek.
+   • Files are served only from under storage/ (or a
+     registered video's own file); a path that resolves
+     elsewhere is 404.
+   • Processing is never run in the web process: POST
+     /api/videos/{id}/process inserts a queued job and
+     returns 202; a pending job is reused, not duplicated.
+   • The worker writes an idle heartbeat (app_settings key
+     worker_heartbeat) on every poll, so the status panel can
+     see a worker that has nothing to do.
+
+ Verified 2026-11-07: 21 route tests on SQLite; and against
+ PostgreSQL with a worker running, /api/system/status said
+ ready with all six checks green, a Range request on a 106 MB
+ annotated video answered 206 with the right Content-Range,
+ and a .mov upload was refused with its message.
+
  HOW THE WORKER IS BUILT (worker/service.py, Phase 9)
 
  The processing_jobs table is the queue; nothing else passes
@@ -1318,6 +1392,30 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  GATE C — which full videos go in the demo is the user's
  decision, made with the table above.
+
+ FOOTAGE CHANGED ON 2026-11-07. The dashcam videos and their
+ 2-minute pieces above were removed by the user and replaced
+ with six static-camera phone recordings (the user and a
+ relative filming the roadside): clear.mp4 (4K, 60 FPS,
+ 2.4 min), portrait.mp4, portrait-new.mp4 and
+ portrait-narzo.mp4 (4K held upright, 30 FPS, HEVC for the
+ last; 1.8 to 4.3 min), rope.mp4 (4K, 57 s) and
+ zoomed-in.mp4 (1080p, 1.8 min). The settings stay frozen.
+ First 10-second runs on them (Phase 10 smoke check):
+   • The upright recordings carry a "rotate -90" tag. OpenCV
+     applies it, so probe_video now reports the upright size
+     (2160x3840) and the annotated video comes out upright.
+     HEVC decodes without any change.
+   • 4K is slow to decode: detection and tracking managed
+     about 10 frames/s on clear.mp4 (60 FPS) and 5 to 6 on
+     the upright ones, against 30 to 50 on the 1080p and 2K
+     dashcam clips, because decoding 50 Mbit/s 4K frames is
+     CPU work. A full 4K video is likely to take 5 to 10
+     times its own length; Phase 14 measures the real
+     figures when the demo videos are processed.
+   • Static cameras have no camera car, and plates are seen
+     head-on, so coverage should be higher than on dashcam
+     footage; 10 seconds is too little to say.
 ══════════════════════════════════════════════════════════════
 
 

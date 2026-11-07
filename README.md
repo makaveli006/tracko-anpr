@@ -9,7 +9,7 @@ Run from the project root, in WSL.
 ### Process a video from start to finish
 
 ```bash
-uv run tracko-anpr process videos/clips/kochi/kochi_part02.mp4
+uv run tracko-anpr process videos/zoomed-in.mp4
 ```
 
 This runs the whole pipeline over an MP4: vehicle detection and tracking, plate detection, plate reading, validation across frames, and the annotated video. It prints each stage as it goes, then a summary: tracks, vehicles by type, how many number plates were confirmed, unconfirmed or not detected, recognition coverage (which is not accuracy), and the confirmed numbers.
@@ -33,7 +33,7 @@ A 2-minute clip takes about three and a half minutes at 1080p and up to eight an
 The application processes videos in a separate worker process, fed by a queue in the database. From the command line the same path is:
 
 ```bash
-uv run tracko-anpr enqueue videos/clips/kochi/kochi_part02.mp4   # register the file and queue it
+uv run tracko-anpr enqueue videos/zoomed-in.mp4   # register the file and queue it
 uv run tracko-anpr worker                                        # run queued jobs until Ctrl+C
 uv run tracko-anpr jobs                                          # what is queued, running, done or failed
 ```
@@ -42,10 +42,20 @@ uv run tracko-anpr jobs                                          # what is queue
 
 Progress (stage and frames done) is written to the job as it runs. A video that cannot be processed ends as `failed` with the reason, and the worker carries on. If the worker is killed mid-job, the next worker to start puts that job back in the queue; a job that has already crashed a worker once is failed instead. Ctrl+C lets the current job finish; a second Ctrl+C interrupts it and requeues it.
 
+### Run the web app
+
+```bash
+uv run tracko-anpr web
+```
+
+This serves the REST API and the dashboard in one process on `http://localhost:8080` (the API documentation is at `/api/docs`). A worker must be running as well for uploads to be processed; the status endpoint `/api/system/status` says what is and is not ready. The host and port come from `TRACKO_WEB_HOST` and `TRACKO_WEB_PORT` in `.env` (defaults `0.0.0.0` and `8080`, so a browser on Windows reaches the app inside WSL at `localhost:8080`).
+
+The dashboard pages are built in the following phases; until then `/` is a placeholder.
+
 ### Detect and track vehicles
 
 ```bash
-uv run tracko-anpr track videos/clips/trafiic/trafiic_part01.mp4
+uv run tracko-anpr track videos/clear.mp4
 ```
 
 This runs YOLO26m with the TrackTrack tracker over an MP4 and writes three files to `storage/processed/`:

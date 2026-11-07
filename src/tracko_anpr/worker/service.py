@@ -39,6 +39,7 @@ from tracko_anpr.db.models import FAILED, PROCESSING, QUEUED, ProcessingJob, Vid
 from tracko_anpr.db.session import session_scope
 from tracko_anpr.db.store import mark_failed, store_result
 from tracko_anpr.pipeline.ocr_client import OcrClient
+from tracko_anpr.services.readiness import record_worker_heartbeat
 
 Logger = Callable[[str], None]
 
@@ -117,6 +118,7 @@ class Worker:
         ran = 0
         try:
             while not self.stop_requested.is_set():
+                self.heartbeat()
                 job_id = self.claim_next_job()
                 if job_id is None:
                     if once:
@@ -130,6 +132,11 @@ class Worker:
         finally:
             self.close()
         return ran
+
+    def heartbeat(self) -> None:
+        """Tell the dashboard a worker is alive, even with nothing to do (the status panel reads this)."""
+        with session_scope(self.factory) as session:
+            record_worker_heartbeat(session, self.worker_id)
 
     # --- the queue ---------------------------------------------------------------------------
 

@@ -420,6 +420,21 @@ def _run_jobs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_web(args: argparse.Namespace) -> int:
+    """The web app: FastAPI with the NiceGUI dashboard mounted, in one process."""
+    import uvicorn
+
+    from tracko_anpr.api.app import create_app
+
+    settings = get_settings()
+    _open_database(settings)  # fail now, with a clear message, rather than on the first request
+    host = args.host or settings.web_host
+    port = args.port or settings.web_port
+    _log(f"web app on http://{host}:{port}/ (API docs at /api/docs); press Ctrl+C to stop")
+    uvicorn.run(create_app(settings), host=host, port=port, log_level="info")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracko-anpr", description="Vehicle ANPR proof of concept.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -479,6 +494,11 @@ def build_parser() -> argparse.ArgumentParser:
     jobs = commands.add_parser("jobs", help="List processing jobs, newest last.")
     jobs.add_argument("--limit", type=int, default=20)
     jobs.set_defaults(handler=_run_jobs)
+
+    web = commands.add_parser("web", help="Serve the API and the dashboard in one process.")
+    web.add_argument("--host", default=None, help="Listen address (default TRACKO_WEB_HOST or 0.0.0.0).")
+    web.add_argument("--port", type=int, default=None, help="Port (default TRACKO_WEB_PORT or 8080).")
+    web.set_defaults(handler=_run_web)
     return parser
 
 

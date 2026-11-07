@@ -69,6 +69,10 @@ class Settings:
     # Database (ARCHITECTURE.md section 11)
     database_url: str
 
+    # Web app: one process with NiceGUI mounted on FastAPI (ARCHITECTURE.md section 3)
+    web_host: str
+    web_port: int
+
     @property
     def models_dir(self) -> Path:
         return self.root / "models"
@@ -130,6 +134,8 @@ def load_settings(root: Path | None = None, environ: dict[str, str] | None = Non
         ocr_start_timeout_seconds=float(env.get("TRACKO_OCR_START_TIMEOUT", "180")),
         ocr_request_timeout_seconds=float(env.get("TRACKO_OCR_REQUEST_TIMEOUT", "60")),
         database_url=build_database_url(env),
+        web_host=env.get("TRACKO_WEB_HOST", "0.0.0.0"),
+        web_port=int(env.get("TRACKO_WEB_PORT", "8080")),
     )
 
 
