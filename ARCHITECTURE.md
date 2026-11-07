@@ -460,6 +460,85 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    storage/vehicle_crops/
    storage/plate_crops/
 
+ HOW IT IS BUILT (db/models.py, db/store.py, db/metrics.py,
+ migrations/)
+
+ Seven tables: the six above plus app_settings, which holds
+ the Settings page's values (each job also keeps its own
+ snapshot of the settings it ran with, so changing a setting
+ does not rewrite history). PostgreSQL stores facts and
+ references only; the columns ending in _path point at files
+ under storage/, relative to the project root.
+
+   videos ──< processing_jobs ──< vehicle_tracks ──< plate_observations
+                                       │
+                                       └──1 recognition_events
+   demo_registry   fictional; matched to recognition_events
+                   by registration number, nothing else
+   app_settings    key → value (JSONB)
+
+   videos              one file: name (its folder under
+                       storage/), path, size, width, height,
+                       exact frame rate, frame count, length
+   processing_jobs     one run of the pipeline over one
+                       video; also the worker's queue:
+                       status (queued, processing, completed,
+                       failed), stage and progress, started /
+                       finished / heartbeat times, worker id,
+                       error, settings snapshot, timings,
+                       memory, processing_seconds, and the
+                       paths of the files it wrote
+   vehicle_tracks      one per track: T<n> id (local to the
+                       job), type, best confidence, first and
+                       last frame and second, countable,
+                       camera_car, same_vehicle_as,
+                       counts_as_vehicle, vehicle crop path
+   plate_observations  one per plate examined: frame, box,
+                       detector confidence, reading, reader
+                       confidence, unreadable, second decoder
+                       text, which cut-out found it, crop path
+   recognition_events  one per countable track: status
+                       (confirmed, unconfirmed, not_detected),
+                       registration number, confidence,
+                       support, readings, share, reason, plate
+                       crop path
+   demo_registry       FICTIONAL: number, owner, vehicle,
+                       type, colour, registering office,
+                       valid until, note
+
+ A video processed again gets a new job on the same videos
+ row; every figure on the dashboard is measured over each
+ video's latest completed job. Track ids mean nothing
+ outside their job.
+
+ The figures, defined once as queries in db/metrics.py:
+   Total Vehicles        tracks with counts_as_vehicle
+   Unique Tracks         every track of the job
+   Recognized Plates     counted vehicles whose event is
+                         confirmed
+   Recognition coverage  Recognized ÷ Total. Not accuracy.
+   Videos Processed      videos with a completed job
+   Avg. Processing Time  mean processing_seconds of those
+                         latest jobs
+   Category breakdown    counted vehicles by type
+   Detections Over Time  counted vehicles per 10-second
+                         bucket of first_seen_s; adds up to
+                         Total Vehicles
+   Detections table      counted vehicles joined to their
+                         event, newest first
+
+ How results get in: `tracko-anpr process` registers the
+ video and creates a job with status processing before the
+ run (so a crash leaves a failed job with its error, not
+ nothing), then store_result writes the job's figures and
+ the rows. The worker (Phase 9) uses the same functions.
+ `--no-db` writes files only.
+
+ Verified 2026-11-07 on a 20-second run: the row counts
+ equal the command's own summary (56 tracks, 31 vehicles,
+ 9 confirmed, 126 plates examined = 126 observation rows,
+ 32 events = 31 counted vehicles + 1 repeat track).
+
                          │
                          ▼
 
@@ -833,15 +912,47 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                The WSL user is in the docker group, so no
                sudo is needed.
 
- BACKEND PACKAGES (checked only, not installed yet)
-   Checked   : 2026-11-06, by resolving without installing
-   Result    : FastAPI 0.162.0 resolves together with
-               NiceGUI 4.0.0, SQLAlchemy 2.1.8, Alembic 1.20.1
-               and psycopg 3.3.8, and leaves PyTorch
-               2.14.1+cu126 unchanged.
+ BACKEND PACKAGES (main environment)
+   Installed : 2026-11-07 (Phase 8)
+   Versions  : FastAPI 0.162.0 (pinned exactly), NiceGUI 4.0.0,
+               SQLAlchemy 2.1.8, Alembic 1.20.1, psycopg 3.3.8
+               (with psycopg-binary). PyTorch 2.14.1+cu126
+               unchanged; the GPU check still passes.
 
-   Install when the database phase starts:
+   Install (in WSL):
+     cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
+     export UV_LINK_MODE=copy
      uv add "fastapi==0.162.0" nicegui sqlalchemy alembic "psycopg[binary]"
+
+ POSTGRESQL 18 (Docker container inside WSL)
+   Started   : 2026-11-07 (Phase 8)
+   Image     : postgres:18 (PostgreSQL 18.6 at the time)
+   Container : tracko-anpr-postgres, port 127.0.0.1:5432
+   Data      : named Docker volume tracko-anpr_postgres_data,
+               mounted at /var/lib/postgresql inside the
+               container (the postgres:18 image's path)
+   Config    : docker-compose.yml at the project root; the
+               credentials come from .env (git-ignored; copy
+               .env.example and set POSTGRES_PASSWORD).
+
+   Start (in WSL):
+     cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
+     cp .env.example .env        # then set a real POSTGRES_PASSWORD
+     docker compose up -d
+     docker compose ps           # wait for "healthy"
+
+   Create or update the tables:
+     uv run alembic upgrade head
+
+   Check it:
+     uv run tracko-anpr db-status
+
+   Verified 2026-11-07: migrate up, down and up again on the
+   empty database; `alembic check` finds no difference
+   between the models and the database; the rows survive
+   `docker compose down` followed by `up` (the volume keeps
+   them); with the container stopped, `tracko-anpr process`
+   stops with a clear message before doing any work.
 
 
 ══════════════════════════════════════════════════════════════

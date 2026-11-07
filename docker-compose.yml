@@ -1,0 +1,32 @@
+# PostgreSQL 18 for tracko-anpr, run with the Docker engine inside WSL (not Docker Desktop).
+#
+#   docker compose up -d        start (first run pulls postgres:18 and creates the volume)
+#   docker compose ps           is it healthy?
+#   docker compose down         stop; the data stays in the named volume
+#
+# Only the database is containerised; the application and the models run directly in WSL.
+# Credentials come from .env in this folder (copy .env.example). The data lives in a named
+# Docker volume, not under /mnt/c: PostgreSQL on the Windows drive would be slow and unsafe.
+# The postgres:18 image keeps its data at /var/lib/postgresql, not the older /var/lib/postgresql/data.
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: tracko-anpr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tracko}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-tracko_anpr}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432" # reachable from this machine only
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tracko} -d ${POSTGRES_DB:-tracko_anpr}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  postgres_data:

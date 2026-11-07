@@ -22,7 +22,9 @@ Results go under `storage/`, in folders named after the video:
 - `storage/processed/<name>/plates.csv` — one row per plate examined, with what the reader made of it.
 - `storage/vehicle_crops/<name>/` and `storage/plate_crops/<name>/` — the cut-out images.
 
-Options: `--max-seconds N` processes only the first N seconds; `--no-video` skips the annotated video; `--name NAME` chooses the folder name. Processing the same video again replaces its earlier results.
+The run is also recorded in the database (see "Database" under Setup): a `videos` row for the file, a `processing_jobs` row for this run, and one row per track, plate examined and plate decision. `uv run tracko-anpr db-status` shows what is stored and the overall figures.
+
+Options: `--max-seconds N` processes only the first N seconds; `--no-video` skips the annotated video; `--name NAME` chooses the folder name; `--no-db` writes files only. Processing the same video again replaces its earlier result files and adds a new job to the same video; the dashboard shows the latest.
 
 A 2-minute clip takes about three and a half minutes at 1080p and up to eight and a half at 2K; a full-length video takes roughly two to four times its own length (the table is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`). The rules that decide what counts as a vehicle and when a number is confirmed are in section 10 of `ARCHITECTURE.md`, and the settings are frozen as of Phase 7.
 
@@ -78,6 +80,23 @@ The model files and the PaddleOCR source code are not in git. Where to get them,
 ## Setup
 
 Everything runs inside WSL (Ubuntu 24.04), not Windows PowerShell. The project folder stays on the Windows drive.
+
+### Database
+
+PostgreSQL 18 runs in a Docker container inside WSL, defined in `docker-compose.yml`. Its data lives in a named Docker volume, so it survives the container being removed.
+
+```bash
+cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
+cp .env.example .env          # then set POSTGRES_PASSWORD to something real
+docker compose up -d
+docker compose ps             # wait until the container says "healthy"
+uv run alembic upgrade head   # create the tables
+uv run tracko-anpr db-status  # check the connection and see what is stored
+```
+
+`.env` is git-ignored. `docker compose down` stops the container and keeps the data; `docker compose down -v` would delete it.
+
+The tables are described in section 11 of `ARCHITECTURE.md`. After changing `src/tracko_anpr/db/models.py`, run `uv run alembic revision --autogenerate -m "what changed"`, read the file it writes under `migrations/versions/`, then `uv run alembic upgrade head`.
 
 ### PyTorch and Ultralytics
 

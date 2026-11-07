@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: Phases 1 to 7 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and one command runs a video through the whole pipeline from the command line (`tracko-anpr process`): vehicle detection and tracking, plate detection, plate reading through the reader service, validation across frames, and the annotated video. Results are files under `storage/`. The pipeline's settings and thresholds are **frozen** as of Phase 7 (2026-11-06; the list is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`): changing any of them means processing every demo video again, so do not tune them without the user asking. The database, the worker, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
+**Status: Phases 1 to 8 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and one command runs a video through the whole pipeline from the command line (`tracko-anpr process`): vehicle detection and tracking, plate detection, plate reading through the reader service, validation across frames, and the annotated video. Results are files under `storage/` and rows in PostgreSQL (the container, the seven tables, the Alembic migration and the metric queries exist since Phase 8). The pipeline's settings and thresholds are **frozen** as of Phase 7 (2026-11-06; the list is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`): changing any of them means processing every demo video again, so do not tune them without the user asking. The worker, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
 
 **The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
@@ -38,7 +38,14 @@ uv run tracko-anpr track <video.mp4>                  # detect and track vehicle
 uv run tracko-anpr track <video.mp4> --max-seconds 10 # same, first 10 seconds only (quick check)
 uv run tracko-anpr track <video.mp4> --no-video       # detections and tracks only, no annotated video (faster)
 uv run tracko-anpr read-plates <folder>               # read plate crops through the reader service (full round trip)
+uv run tracko-anpr process <video.mp4> --no-db        # files only, no database rows
+uv run tracko-anpr db-status                          # is the database up and migrated, and what is in it
+docker compose up -d                                  # start PostgreSQL (needs .env with POSTGRES_PASSWORD)
+uv run alembic upgrade head                           # create or update the tables
+uv run alembic revision --autogenerate -m "..."       # after changing db/models.py; read the file it writes
 ```
+
+`process` needs the database up and migrated unless `--no-db` is given; it checks before starting the run. `.env` is created by copying `.env.example` and setting `POSTGRES_PASSWORD`; it is git-ignored and the password in it belongs to this machine's local container only. Keep `.env` with Unix line endings: Compose and the app's own reader tolerate CRLF, but a shell `source .env` does not.
 
 `track` on a full 2-minute clip takes two and a half to seven minutes and `process` takes three and a half to eight and a half (measured on 2026-11-06 over one clip from each of the eight videos: 195 to 353 s at 1080p, 301 to 499 s at 2K; the tracking stage varies by about 20% between runs of the same clip), so run those in the background; the first frame alone takes several seconds while the GPU starts up. Up to half of the rendering time in `process` goes on finding each plate again in every frame to outline it. At those speeds the full-length videos take 7 minutes (`trafiic`) to 98 minutes (`kozhikode` at 2K), about 6 hours for all eight; the table is in `ARCHITECTURE.md`.
 
@@ -103,7 +110,16 @@ How the pipeline code is organised (`src/tracko_anpr/pipeline/`):
 - `results.py` writes the per-frame detections CSV and the per-track JSON.
 - `rules.py` decides which tracks count as vehicles: followed at least 0.5 s and at some point at least 6% of the frame height tall, and not the camera car itself. The camera car has two shapes: its bonnet (10 s or longer, a quarter of the frame wide, on the bottom edge 80% of the time) and, when the camera is inside the cab (`ooty`, `truck`), its own door pillar and window boxed as a "car" (3 s or longer, at least 40% of the frame wide, with another vehicle's whole box inside it in 10% of its frames). Sizes are fractions and times are seconds, so nothing depends on resolution or frame rate.
 - `validation.py` is plain logic, no model: plate formats, look-alike correction, and `decide`, which turns a vehicle's readings into Confirmed, Unconfirmed or Not Detected. The thresholds are in `ValidationRules`.
-- `runner.py` is the whole pipeline (`run_pipeline`): the seven stages in order with a progress callback per stage (`STAGES` matches the dashboard timeline), per-stage timings, and the result files. The worker in Phase 9 calls this; do not duplicate it.
+- `runner.py` is the whole pipeline (`run_pipeline`): the seven stages in order with a progress callback per stage (`STAGES` matches the dashboard timeline), per-stage timings, and the result files. It returns a `PipelineResult` whose `document` is the whole `results.json`. The worker in Phase 9 calls this; do not duplicate it.
+
+The database layer (`src/tracko_anpr/db/`, Phase 8) is separate from the pipeline, which knows nothing about it:
+
+- `models.py` has the seven tables as SQLAlchemy models (`videos`, `processing_jobs`, `vehicle_tracks`, `plate_observations`, `recognition_events`, `demo_registry`, `app_settings`) and the job status constants. JSON columns are `JSON().with_variant(JSONB, "postgresql")` so the tests run on SQLite; keep new JSON columns the same way.
+- `store.py` maps a `PipelineResult` onto the tables: `register_video` (one `videos` row per file, by name), `create_job`, `store_result`, `mark_failed`. The command line and the worker both go through these.
+- `metrics.py` defines every dashboard figure once, as queries over each video's **latest completed job** (`latest_completed_jobs`): `summary`, `category_breakdown`, `validation_breakdown`, `detections_over_time`, `detections`, `processing_durations`. Add new figures here, not in the API or the pages.
+- `session.py`: `make_engine`, `session_scope`, `check_connection` (raises `DatabaseUnavailable` with a plain message), `current_revision`.
+- `migrations/` is Alembic; `env.py` takes the URL from the project settings, so there is no password in `alembic.ini`. One revision so far (`fc32b7b47ec6`, the seven tables). Autogenerate misses renames and server defaults: read every generated file.
+- A track's `counts_as_vehicle` (countable and not a repeat) is stored, not recomputed; Total Vehicles is a count of that column. A repeat track keeps its `recognition_events` row (its number) but is not counted.
 
 Things learned building the full pipeline (Phase 6, 2026-11-06) that are easy to undo by mistake:
 
@@ -173,7 +189,7 @@ These are assumed by the specs but not yet confirmed or available:
 
 ## Repository notes
 
-- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command: `process`, `track`, `read-plates`), the `pipeline` package described above, and still-empty subpackages `api`, `dashboard` (`components`, `pages`), `db` and `worker`. `migrations/`, `alembic.ini` and `docker-compose.yml` are not created yet.
+- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command: `process`, `track`, `read-plates`, `db-status`), the `pipeline` and `db` packages described above, and still-empty subpackages `api`, `dashboard` (`components`, `pages`) and `worker`. `migrations/`, `alembic.ini` and `docker-compose.yml` are at the project root.
 - `models/` holds what the app loads and is git-ignored apart from `.gitkeep`: `yolo26m.pt` (official Ultralytics release), `plate/` (the safely re-saved plate detector) and `awiros/` (the OCR model, its dictionary and its reference `test.py`). Sources and checksums are recorded in `ocr/README.md`.
 - `storage/` holds uploads and generated files, also git-ignored apart from `.gitkeep`.
 - Commits are staged with `git add .`, so `.gitignore` is the only thing keeping large or secret files out. It covers `videos/`, model weights, `runs/` and `datasets/` (Ultralytics output), `.env`, and the vendored PaddleOCR source. Add a rule there before creating any new kind of generated file.

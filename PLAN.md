@@ -13,7 +13,7 @@ Tick a phase when it is complete and merged into `development`.
 - [x] Phase 5 — OCR service (done 2026-11-06)
 - [x] Phase 6 — Validation, full pipeline, final video (done 2026-11-06; `tracko-anpr process`, results in "Measured — full pipeline" in `ARCHITECTURE.md`)
 - [x] Phase 7 — Acceptance and freeze (done 2026-11-06; eight clips run, settings frozen, camera-car cabin rule added; results and the full-video time table in "Acceptance run and frozen settings" in `ARCHITECTURE.md`; gate C, which full videos go in the demo, is the user's decision and is settled when Phase 14 starts)
-- [ ] Phase 8 — Database
+- [x] Phase 8 — Database (done 2026-11-07; PostgreSQL 18 container, seven tables, Alembic migration `fc32b7b47ec6`, metric queries in `db/metrics.py`, `process` stores its results, `db-status`)
 - [ ] Phase 9 — Worker
 - [ ] Phase 10 — Services and API
 - [ ] Phase 11 — Dashboard shell and Upload & Process

@@ -190,6 +190,17 @@ def _stage_printer(every_seconds: float = 3.0):
     return report
 
 
+def _open_database(settings):
+    """An engine for the project database, or a clear error when it is down or not migrated."""
+    from tracko_anpr.db.session import DatabaseUnavailable, check_connection, current_revision, make_engine
+
+    engine = make_engine(settings.database_url)
+    check_connection(engine)
+    if current_revision(engine) is None:
+        raise DatabaseUnavailable("The database has no tables yet. Run: uv run alembic upgrade head")
+    return engine
+
+
 def _run_process(args: argparse.Namespace) -> int:
     # Imported here so `tracko-anpr --help` does not load PyTorch.
     from tracko_anpr.pipeline.runner import PipelineOptions, run_pipeline
@@ -202,7 +213,32 @@ def _run_process(args: argparse.Namespace) -> int:
         f"{info.frame_count} frames, {info.duration_s:.1f} s"
     )
     options = PipelineOptions(render_video=not args.no_video, max_seconds=args.max_seconds)
-    result = run_pipeline(args.video, settings, options, _stage_printer(), name=args.name)
+
+    job_id = video_name = None
+    if not args.no_db:
+        # Checked before the run, so a database problem shows up now and not after ten minutes of work.
+        from tracko_anpr.db.models import COMMAND_LINE, PROCESSING, ProcessingJob
+        from tracko_anpr.db.session import make_session_factory, session_scope
+        from tracko_anpr.db.store import create_job, mark_failed, register_video, store_result
+
+        factory = make_session_factory(_open_database(settings))
+        with session_scope(factory) as session:
+            video = register_video(session, info, settings.root, COMMAND_LINE, name=args.name)
+            job = create_job(session, video, PROCESSING)
+            job_id, video_name = job.id, video.name
+        print(f"Database: video {video.id} ({video_name}), job {job_id}")
+
+    try:
+        result = run_pipeline(args.video, settings, options, _stage_printer(), name=video_name or args.name)
+    except Exception as error:
+        if job_id is not None:
+            with session_scope(factory) as session:
+                mark_failed(session, session.get(ProcessingJob, job_id), f"{type(error).__name__}: {error}")
+        raise
+
+    if job_id is not None:
+        with session_scope(factory) as session:
+            store_result(session, session.get(ProcessingJob, job_id), result, settings.root)
 
     summary, timings = result.summary, result.timings
     coverage = summary["recognition_coverage"]
@@ -235,6 +271,49 @@ def _run_process(args: argparse.Namespace) -> int:
     print("  Files:")
     for label, path in result.files.items():
         print(f"    {label:<16} {path}")
+    if job_id is not None:
+        print(f"  Database: stored as job {job_id} of video {video_name}")
+    return 0
+
+
+def _run_db_status(args: argparse.Namespace) -> int:
+    """Is the database reachable and migrated, and what is in it?"""
+    from sqlalchemy import func, select
+
+    from tracko_anpr.db import metrics
+    from tracko_anpr.db.models import (
+        AppSetting,
+        DemoRegistryEntry,
+        PlateObservation,
+        ProcessingJob,
+        RecognitionEvent,
+        VehicleTrack,
+        Video,
+    )
+    from tracko_anpr.db.session import current_revision, make_session_factory, session_scope
+
+    settings = get_settings()
+    engine = _open_database(settings)
+    print(f"Database: {engine.url.render_as_string(hide_password=True)}")
+    print(f"Migration: {current_revision(engine)}")
+    tables = [Video, ProcessingJob, VehicleTrack, PlateObservation, RecognitionEvent, DemoRegistryEntry, AppSetting]
+    with session_scope(make_session_factory(engine)) as session:
+        print("Rows:")
+        for table in tables:
+            count = session.scalar(select(func.count()).select_from(table))
+            print(f"  {table.__tablename__:<20} {count}")
+        overall = metrics.summary(session)
+        print("Across all videos (latest completed job of each):")
+        print(f"  Videos processed     {overall.videos_processed}")
+        print(f"  Unique tracks        {overall.unique_tracks}")
+        print(f"  Total vehicles       {overall.total_vehicles}")
+        print(f"  Confirmed plates     {overall.confirmed_plates}")
+        coverage = "n/a" if overall.recognition_coverage is None else f"{100 * overall.recognition_coverage:.1f}%"
+        print(f"  Recognition coverage {coverage} (coverage, not accuracy)")
+        if overall.average_processing_seconds is not None:
+            print(f"  Avg. processing time {overall.average_processing_seconds:.0f} s per video")
+        if overall.last_run_at is not None:
+            print(f"  Last run             {overall.last_run_at:%Y-%m-%d %H:%M:%S %Z}")
     return 0
 
 
@@ -269,16 +348,25 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--max-seconds", type=float, default=None, help="Only process the first N seconds.")
     process.add_argument("--no-video", action="store_true", help="Skip the annotated video; write only the results.")
     process.add_argument("--name", default=None, help="Name for this run's result folders (default: the file name).")
+    process.add_argument(
+        "--no-db", action="store_true", help="Do not record the video and its results in the database; files only."
+    )
     process.set_defaults(handler=_run_process)
+
+    db_status = commands.add_parser(
+        "db-status", help="Check the database connection and migration, and show what is stored."
+    )
+    db_status.set_defaults(handler=_run_db_status)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tracko_anpr.db.session import DatabaseUnavailable
     from tracko_anpr.pipeline.ocr_client import OcrError
 
     args = build_parser().parse_args(argv)
     try:
         return args.handler(args)
-    except (VideoError, FileNotFoundError, OcrError) as error:
+    except (VideoError, FileNotFoundError, OcrError, DatabaseUnavailable) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1

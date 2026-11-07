@@ -161,6 +161,8 @@ class PipelineResult:
     summary: dict
     timings: dict
     files: dict[str, Path]
+    document: dict = field(default_factory=dict)
+    """Everything written to results.json: video, summary, timings, speed, memory, settings, vehicles."""
 
 
 def plate_owner(plate: Box, found_in: int, vehicle_boxes: dict[int, Box]) -> int:
@@ -544,10 +546,10 @@ def run_pipeline(
     }
     files["results"].write_text(json.dumps(document, indent=2), encoding="utf-8")
     report("result_generation", run.frame_count, run.frame_count)
-    return PipelineResult(info, ordered, summary, timings, files)
+    return PipelineResult(info, ordered, summary, timings, files, document)
 
 
-def _relative(path: Path | None, root: Path) -> str | None:
+def relative_path(path: Path | None, root: Path) -> str | None:
     """A path as stored in results: relative to the project root, so results can move with the project."""
     if path is None:
         return None
@@ -585,8 +587,8 @@ def _vehicle_document(vehicle: VehicleRecord, fps: float, root: Path) -> dict:
             "reason": decision.reason,
         },
         "plates_examined": len(vehicle.sightings),
-        "vehicle_crop": _relative(vehicle.vehicle_crop, root),
-        "plate_crop": _relative(vehicle.plate_crop, root),
+        "vehicle_crop": relative_path(vehicle.vehicle_crop, root),
+        "plate_crop": relative_path(vehicle.plate_crop, root),
     }
 
 
