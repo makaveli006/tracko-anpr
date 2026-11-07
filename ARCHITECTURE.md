@@ -230,6 +230,86 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  "HOW TO MEASURE REAL ACCURACY" can start from it, with the
  corrected columns as true_number and true_type.
 
+ FEATURES INSPIRED FROM AXIS COMMUNICATIONS
+
+ On 2026-11-07 two Axis Communications documents were read
+ against this project: the AXIS License Plate Verifier
+ technical documentation (February 2026; an on-camera LPR
+ application with lists, events and integrations) and the
+ whitepaper "License plate capture — key factors for
+ successful license plate recognition" (December 2024; the
+ physics of getting readable plates). Everything that
+ presupposes a live camera (barriers, I/O, PTZ, IR and
+ shutter settings) is out of scope by the spec. What carries
+ over, in the order worth doing:
+
+ 1. RECORDING GUIDE — done 2026-11-07.
+    RECORDING_GUIDE.md at the project root, for anyone
+    filming with a phone or a fixed camera: plate at least
+    130 px wide when closest (two-row plates 70 px per row),
+    camera in line with the traffic within 30°, level within
+    5°, height about half the reading distance, above
+    headlights, not into the sun; landscape 1080p at 30 fps
+    (4K adds nothing and costs six times the processing),
+    focus and exposure locked, fast shutter, phone still,
+    1 to 3 minute clips; night only with light at the camera
+    (plates are retro-reflective); a plate-width self-check
+    before uploading (130 px is about 7% of a 1080p frame);
+    and our own measured read rates by plate width on the
+    three demo videos, which agree with Axis's numbers
+    (1080p: 60 to 100 px read 66% of the time; 4K: under
+    150 px rarely; zoomed-in, filmed closest, has the best
+    coverage at the lowest resolution). The Upload page shows
+    the guide's first three sections under "Recording tips
+    for better results", rendered from the same file. Zero
+    pipeline change; it is the largest lever on coverage.
+
+ 2. Plate-size check on upload (future). Sample a few frames
+    of an uploaded video, run the detectors on them, and tell
+    the user the typical plate width before the full run
+    ("about 45 px: expect low coverage"). Mirrors Axis's
+    pixel counter. Touches the Upload page and a small
+    sampling service; no change to the pipeline's results.
+
+ 3. Direction per track and New / Update / Lost events
+    (future). The per-frame boxes already give a trajectory;
+    a direction (towards / away, left / right) per vehicle
+    enables entry and exit counting in Detections Over Time
+    and History, and the Verifier's event lifecycle (first
+    read, corrected read, last sighting with direction) can
+    be shown in the details dialog from the observations we
+    already store. Touches results, metrics and the pages;
+    reads existing data only.
+
+ 4. Near-match flagging in the registry (future). Axis
+    matches with one character of tolerance by default and
+    documents that it lets look-alikes through. For us: show
+    registry records at edit distance 1 as "possible match",
+    never as a Match, so 0/O, 8/B and 1/I misreads are
+    visible without being asserted. Touches
+    services/registry.py and the registry and detail views.
+
+ 5. History and registry conveniences (future). "Copy link to
+    this search" on Detection History (the filters are
+    already URL parameters); CSV import, a description field
+    and "add this plate to a list" on the Demo Registry, as
+    the Verifier's list management does. Small page changes.
+
+ 6. Outbound integration (future). An HTTP POST webhook per
+    confirmed plate with the same JSON shape as the API's
+    detection (plate, confidence, direction, time, video,
+    crop URLs), a "Test with a virtual plate" button, and a
+    buffer that stores events while the receiver is down and
+    replays them, as Axis's push events do. Turns the POC
+    into a component.
+
+ 7. Configuration after the freeze (future). The knobs Axis
+    exposes that we keep fixed: confidence threshold (lower
+    for low light), minimum number of characters, area of
+    interest, retention period and capture type. Any of them
+    changes results, so they wait until the demo and are
+    judged with the accuracy procedure.
+
  HOW THE WORKER IS BUILT (worker/service.py, Phase 9)
 
  The processing_jobs table is the queue; nothing else passes

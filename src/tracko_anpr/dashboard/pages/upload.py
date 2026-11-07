@@ -20,6 +20,20 @@ from tracko_anpr.services.jobs import JobStatus
 from tracko_anpr.services.videos import MAX_UPLOAD_BYTES, InvalidVideo, VideoSummary
 
 POLL_SECONDS = 1.0
+GUIDE = Path(__file__).resolve().parents[3].parent / "RECORDING_GUIDE.md"
+"""The recording guide at the project root; the Upload page shows its first sections."""
+
+
+def recording_tips() -> str:
+    """Sections 1 to 3 of RECORDING_GUIDE.md (what the system needs, where to stand, how to record)."""
+    try:
+        text = GUIDE.read_text(encoding="utf-8")
+    except OSError:
+        return "See RECORDING_GUIDE.md in the project folder."
+    start = text.find("## 1.")
+    end = text.find("## 4.")
+    body = text[start:end] if start != -1 and end != -1 else text
+    return body.replace("## ", "#### ")
 
 
 class UploadPage:
@@ -56,6 +70,12 @@ class UploadPage:
                 ui.label("MP4 video · H.264 preferred · 1080p and 30 frames per second recommended").classes(
                     "tk-muted text-xs"
                 )
+            with ui.expansion("Recording tips for better results", icon="videocam").classes("w-full tk-tips"):
+                ui.markdown(recording_tips()).classes("tk-secondary text-sm tk-tips-body")
+                ui.label(
+                    "Plate at least 130 px wide, camera in line with the traffic, 1080p at 30 fps. "
+                    "The full guide is RECORDING_GUIDE.md in the project folder."
+                ).classes("tk-muted text-xs mt-1")
             self.uploader = (
                 ui.upload(
                     label="Drop an MP4 here or click to choose",

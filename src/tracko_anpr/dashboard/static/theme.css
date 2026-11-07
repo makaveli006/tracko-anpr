@@ -296,3 +296,13 @@ a { color: var(--accent-green); }
 /* ---- operator corrections ------------------------------------------------------------------ */
 .tk-corrected { text-decoration: underline dashed var(--accent-amber); text-underline-offset: 3px; cursor: help; }
 .tk-correction-box { background: var(--bg-card-2); border: 1px solid var(--border-color); border-radius: var(--radius-small); padding: 12px 14px; }
+
+/* ---- recording tips (Upload page) --------------------------------------------------------- */
+.tk-tips { background: transparent; border-top: 1px solid var(--divider); margin-top: 8px; }
+.tk-tips .q-item { color: var(--text-secondary); min-height: 40px; }
+.tk-tips .q-item .q-icon { color: var(--accent-green); }
+.tk-tips-body h4 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 10px 0 4px; }
+.tk-tips-body ul { padding-left: 18px; margin: 4px 0; }
+.tk-tips-body li { margin: 2px 0; }
+.tk-tips-body strong { color: var(--text-primary); }
+.tk-tips-body p { margin: 4px 0; }

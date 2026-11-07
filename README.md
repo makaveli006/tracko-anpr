@@ -38,6 +38,8 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
 
 5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer three processed videos in its selector (`clear`, `rope`, `zoomed-in`; 251 vehicles and 48 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 10 to 25 minutes.
 
+**Recording new videos:** follow [RECORDING_GUIDE.md](RECORDING_GUIDE.md) — plate at least 130 px wide, camera in line with the traffic, 1080p at 30 fps. It is the biggest lever on how many plates get read.
+
 Nothing on any page is fetched from the internet (fonts, charts and icons are served by the app), so the demo works with the network unplugged. The database does not need the network either.
 
 Stopping: Ctrl+C in each terminal (the worker finishes its current job first; Ctrl+C again interrupts it), and `docker compose down` only if the container should stop too — the data stays.
