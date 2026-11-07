@@ -1,29 +1,29 @@
 track,true_number,plate_legible,true_type,is_vehicle,duplicate_of,note,labelled_by,label_doubt
 T1,,no,Bus,yes,,blue Fantastic bus; own yellow plate unreadable; two crops are the plate of the car T4,"claude (crops only, blind)",no
-T2,KL58A9450,yes,Car,yes,,,"claude (crops only, blind)",no
+T2,KL58A9450,yes,Car,yes,,,"claude and user, independently, agreed",no
 T3,,no,Car,yes,,sliver of a dark car at the frame edge,"claude (crops only, blind)",no
-T4,KL11BG7008,yes,Car,yes,,"white Honda City; plate smeared, last digits could be 7006","claude (crops only, blind)",yes
+T4,KL11BG7008,yes,Car,yes,,"white Honda City; plate smeared, last digits could be 7006","claude and user, independently, agreed",yes
 T5,,no,Car,yes,,grey SUV side on; its crops show the plate of T4 or nothing readable,"claude (crops only, blind)",no
 T6,,no,Car,yes,,dark SUV rear beside a mirror; plate 29 px,"claude (crops only, blind)",no
 T7,,no,Other,yes,,"auto-rickshaw, green plate a smear","claude (crops only, blind)",no
 T16,,no,Car,yes,T5,same vehicle as T5; identified by appearance,"claude (crops only, blind)",no
-T20,KL57?4250,partly,Car,yes,,plate 300 px wide but melted by compression,"claude (crops only, blind)",yes
+T20,KL57?4250,partly,Car,yes,,plate 300 px wide but melted by compression; user read nothing readable,"claude, user could not confirm",yes
 T23,,no,Car,yes,,"parked white Toyota Etios; plate never readable, about 50 px and smeared","claude (crops only, blind)",no
-T30,KL84F04??,partly,Car,yes,,white Baleno; plate cut off at the frame edge in the one crop,"claude (crops only, blind)",yes
+T30,KL84F041?,partly,Car,yes,,white Baleno; plate cut off at the frame edge in the one crop; user read KL84F041,"claude, user could not confirm",yes
 T32,,no,Car,yes,,"parked grey Maruti Eeco; plate about 45 px, smeared","claude (crops only, blind)",no
 T34,,no,Car,yes,T5,same vehicle as T5; identified by appearance,"claude (crops only, blind)",no
 T37,,no,Truck,yes,,"cream pickup; yellow plate 75 px, smeared","claude (crops only, blind)",no
 T42,,no,Car,yes,,silver car mostly hidden,"claude (crops only, blind)",no
-T46,KL65?????,partly,Motorcycle,yes,,two-line plate; another crop shows a car plate behind it,"claude (crops only, blind)",yes
-T51,KL10BL1647,yes,Truck,yes,,"orange two-line plate, tilted","claude (crops only, blind)",yes
+T46,KL65?????,partly,Motorcycle,yes,,two-line plate; another crop shows a car plate behind it; user read KL65,"claude, user could not confirm",yes
+T51,KL10BL1647,yes,Truck,yes,,"orange two-line plate, tilted","claude and user, independently, agreed",yes
 T52,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T60,,no,Truck,yes,T37,same vehicle as T37; identified by appearance,"claude (crops only, blind)",no
 T61,,no,Truck,yes,,green-covered goods vehicle behind a car,"claude (crops only, blind)",no
 T63,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
-T66,KL14?2801,partly,Car,yes,,"white Ritz; plate about 280 px, letter unclear","claude (crops only, blind)",yes
+T66,KL14W2801,yes,Car,yes,,"white Ritz; plate about 280 px, letter unclear; Claude read KL14?2801, user read KL14W2801",user (blind check),yes
 T67,,no,Motorcycle,yes,,"plate blurred in the vehicle crop, no plate crop","claude (crops only, blind)",no
-T76,KL78B9183,yes,Motorcycle,yes,,"read from its later crops, 138 px","claude (crops only, blind)",yes
-T80,KL78B9183,yes,Motorcycle,yes,T76,same vehicle as T76; identified by appearance,"claude (crops only, blind)",no
+T76,KL78B8183,yes,Motorcycle,yes,,"read from its later crops, 138 px; Claude read KL78B9183, user read KL78B8183",user (blind check),yes
+T80,KL78B8183,yes,Motorcycle,yes,T76,same vehicle as T76; identified by appearance,"claude (crops only, blind)",no
 T82,,no,Motorcycle,yes,,"green electric plate, smeared even at 110 px","claude (crops only, blind)",no
 T83,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T84,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
@@ -31,15 +31,15 @@ T88,,no,Other,yes,,auto-rickshaw,"claude (crops only, blind)",no
 T89,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
 T90,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T100,,no,Other,yes,,auto-rickshaw,"claude (crops only, blind)",no
-T102,KL14?2801,partly,Car,yes,T66,same vehicle as T66; identified by appearance,"claude (crops only, blind)",no
+T102,KL14W2801,yes,Car,yes,T66,same vehicle as T66; identified by appearance,"claude (crops only, blind)",no
 T105,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T106,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T107,,no,Other,yes,T88,same vehicle as T88; identified by appearance,"claude (crops only, blind)",no
 T108,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
 T111,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
-T112,,no,Motorcycle,yes,,"two-line plate 136 px, characters melted","claude (crops only, blind)",no
+T112,,no,Motorcycle,yes,,"two-line plate 136 px, characters melted; user read nothing readable","claude, user could not confirm",no
 T114,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
-T118,KL84?3954,partly,Car,yes,,"white S-Presso; plate 290 px, letter unclear","claude (crops only, blind)",yes
+T118,KL84?3954,partly,Car,yes,,"white S-Presso; plate 290 px, letter unclear; user read KL84","claude, user could not confirm",yes
 T127,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T128,,no,Motorcycle,yes,T82,same vehicle as T82; identified by appearance,"claude (crops only, blind)",no
 T129,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
@@ -58,15 +58,15 @@ T157,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crop
 T160,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T163,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T164,,no,Car,yes,,parked dark car behind a pole; plate 25 px,"claude (crops only, blind)",no
-T165,KL84E????,partly,Car,yes,,"parked white Baleno; plate 70 px, smeared","claude (crops only, blind)",yes
-T167,KL84E7081,yes,Car,yes,,dark Baleno; last digits could be 7091,"claude (crops only, blind)",yes
+T165,KL84E????,partly,Car,yes,,"parked white Baleno; plate 70 px, smeared; user read nothing readable","claude, user could not confirm",yes
+T167,KL84E7081,yes,Car,yes,,dark Baleno; last digits could be 7091,"claude and user, independently, agreed",yes
 T173,KL84E????,partly,Car,yes,T165,same vehicle as T165; identified by appearance,"claude (crops only, blind)",no
 T176,KL84E????,partly,Car,yes,T165,same vehicle as T165; identified by appearance,"claude (crops only, blind)",no
 T177,,no,Other,yes,,auto-rickshaw,"claude (crops only, blind)",no
-T178,KL84F57?6,partly,Truck,yes,,"white box truck; read from its later crops, yellow plate 86 px","claude (crops only, blind)",yes
+T178,KL84F57?6,partly,Truck,yes,,"white box truck; read from its later crops, yellow plate 86 px; user read KL","claude, user could not confirm",yes
 T179,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T182,,no,Truck,yes,T144,same vehicle as T144; identified by appearance,"claude (crops only, blind)",no
-T184,,no,Motorcycle,yes,,"two-line plate 248 px, characters melted","claude (crops only, blind)",no
+T184,,no,Motorcycle,yes,,"two-line plate 248 px, characters melted; user read KL84","claude, user could not confirm",no
 T185,KL84E????,partly,Car,yes,T165,same vehicle as T165; identified by appearance,"claude (crops only, blind)",no
 T186,,no,Other,yes,,auto-rickshaw behind a pole,"claude (crops only, blind)",no
 T187,,no,Other,yes,,three-wheeler,"claude (crops only, blind)",no
@@ -88,17 +88,17 @@ T213,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T214,,no,Motorcycle,yes,,plate washed out,"claude (crops only, blind)",no
 T215,KL84F57?6,partly,Truck,yes,T178,same vehicle as T178; identified by appearance,"claude (crops only, blind)",no
 T224,,no,Motorcycle,yes,T214,same vehicle as T214; identified by appearance,"claude (crops only, blind)",no
-T226,,no,Motorcycle,yes,,"two-line plate 121 px, characters melted","claude (crops only, blind)",no
+T226,,no,Motorcycle,yes,,"two-line plate 121 px, characters melted; user read KL54","claude, user could not confirm",no
 T230,KL84F57?6,partly,Truck,yes,T178,same vehicle as T178; identified by appearance,"claude (crops only, blind)",no
-T232,KL10BL6476,yes,Other,yes,,auto-rickshaw,"claude (crops only, blind)",yes
+T232,KL10BL6476,yes,Other,yes,,auto-rickshaw,"claude and user, independently, agreed",yes
 T237,,no,Car,yes,T164,same vehicle as T164; identified by appearance,"claude (crops only, blind)",no
-T238,KL55?5?63,partly,Car,yes,,brown Wagon R; plate 117 px,"claude (crops only, blind)",yes
+T238,KL55?5?63,partly,Car,yes,,brown Wagon R; plate 117 px; user read CL55,"claude, user could not confirm",yes
 T240,,no,Car,yes,T164,same vehicle as T164; identified by appearance,"claude (crops only, blind)",no
 T243,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
 T245,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T247,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
-T252,KL58?1?79,partly,Motorcycle,yes,,two-line plate,"claude (crops only, blind)",yes
-T254,KL84F8061,yes,Car,yes,T269,same vehicle as T269; identified by appearance,"claude (crops only, blind)",no
+T252,KL58?1?79,partly,Motorcycle,yes,,two-line plate; user read KL,"claude, user could not confirm",yes
+T254,KL84F8061,yes,Car,yes,T269,same vehicle as T269; identified by appearance; user read KL84,"claude, user could not confirm",no
 T265,KL58?1?79,partly,Motorcycle,yes,T252,same vehicle as T252; identified by appearance,"claude (crops only, blind)",no
 T266,KL55?5?63,partly,Car,yes,T238,same vehicle as T238; identified by appearance,"claude (crops only, blind)",no
 T268,,no,Other,yes,,orange three-wheeler,"claude (crops only, blind)",no
@@ -108,14 +108,14 @@ T273,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crop
 T277,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
 T278,,no,Car,yes,T6,same vehicle as T6; identified by appearance,"claude (crops only, blind)",no
 T280,,no,Bus,yes,,yellow Novel school bus; plate never readable,"claude (crops only, blind)",no
-T281,KL53H996,yes,Bus,yes,,blue bus,"claude (crops only, blind)",no
+T281,KL53H996,yes,Bus,yes,,blue bus,"claude and user, independently, agreed",no
 T286,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T288,,no,Car,yes,T3,same vehicle as T3; identified by appearance,"claude (crops only, blind)",no
-T289,KL?4E?954,partly,Car,yes,,"dark SUV; plate 335 px, melted","claude (crops only, blind)",yes
+T289,KL?4E?954,partly,Car,yes,,"dark SUV; plate 335 px, melted; user read nothing readable","claude, user could not confirm",yes
 T291,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T292,,no,Bus,yes,T280,same vehicle as T280; identified by appearance,"claude (crops only, blind)",no
 T294,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
-T295,KL55?????,partly,Car,yes,,"red Alto; read from its side view, 112 px","claude (crops only, blind)",yes
+T295,KL55?????,partly,Car,yes,,"red Alto; read from its side view, 112 px; user read nothing readable","claude, user could not confirm",yes
 T297,,no,Other,yes,,auto-rickshaw behind pedestrians,"claude (crops only, blind)",no
 T299,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T302,KL55?????,partly,Car,yes,T295,same vehicle as T295; identified by appearance,"claude (crops only, blind)",no
@@ -124,9 +124,9 @@ T304,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T307,,no,Motorcycle,yes,,"black scooter, man in red shirt; plate under 30 px","claude (crops only, blind)",no
 T309,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T310,KL?4E?954,partly,Car,yes,T289,same vehicle as T289; identified by appearance,"claude (crops only, blind)",no
-T312,KL84F9882,yes,Truck,yes,,"red pickup; plate 444 px, smeared","claude (crops only, blind)",yes
+T312,KL84F????,partly,Truck,yes,,"red pickup; plate 444 px, smeared; user read nothing readable","claude, user could not confirm",yes
 T325,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
-T326,KL55Y3474,yes,Truck,yes,,orange goods carrier; read from its later crops,"claude (crops only, blind)",yes
+T326,KL55Y????,partly,Truck,yes,,orange goods carrier; read from its later crops; user read nothing readable,"claude, user could not confirm",yes
 T328,,no,Motorcycle,yes,T307,same vehicle as T307; identified by appearance,"claude (crops only, blind)",no
 T329,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T333,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
@@ -134,15 +134,15 @@ T334,,no,Car,yes,,white Swift head-on; plate 40 px,"claude (crops only, blind)",
 T335,,no,Car,yes,T6,same vehicle as T6; identified by appearance,"claude (crops only, blind)",no
 T339,,no,Truck,yes,,"fuel tanker; yellow plate 116 px, unreadable","claude (crops only, blind)",no
 T340,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
-T344,KL55Y3474,yes,Truck,yes,T326,same vehicle as T326; identified by appearance,"claude (crops only, blind)",no
+T344,KL55Y????,partly,Truck,yes,T326,same vehicle as T326; identified by appearance,"claude (crops only, blind)",no
 T347,,no,Motorcycle,yes,T307,same vehicle as T307; identified by appearance,"claude (crops only, blind)",no
 T354,,no,Car,yes,T334,same vehicle as T334; identified by appearance,"claude (crops only, blind)",no
 T356,,no,Car,yes,,"white SUV, orange plate a smear","claude (crops only, blind)",no
-T357,,no,Car,yes,,"Nexon EV; green plate 294 px, melted","claude (crops only, blind)",no
+T357,,no,Car,yes,,"Nexon EV; green plate 294 px, melted; user read nothing readable","claude, user could not confirm",no
 T358,,no,Other,yes,,three-wheeler,"claude (crops only, blind)",no
-T361,KL55Y3474,yes,Truck,yes,T326,same vehicle as T326; identified by appearance,"claude (crops only, blind)",no
+T361,KL55Y????,partly,Truck,yes,T326,same vehicle as T326; identified by appearance,"claude (crops only, blind)",no
 T365,,no,Car,yes,T334,same vehicle as T334; identified by appearance,"claude (crops only, blind)",no
-T368,KL10BF2345,yes,Car,yes,,white Honda City,"claude (crops only, blind)",yes
+T368,KL????????,partly,Car,yes,,white Honda City; user read KL84,"claude, user could not confirm",yes
 T369,,no,Motorcycle,yes,T307,same vehicle as T307; identified by appearance,"claude (crops only, blind)",no
 T373,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T375,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
@@ -151,18 +151,18 @@ T377,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T378,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
 T383,,no,Car,yes,T334,same vehicle as T334; identified by appearance,"claude (crops only, blind)",no
 T386,,no,Car,yes,,"white SUV; orange plate 166 px, a blank smear","claude (crops only, blind)",no
-T388,,no,Motorcycle,yes,,"two-line plate 195 px, characters melted","claude (crops only, blind)",no
+T388,,no,Motorcycle,yes,,"two-line plate 195 px, characters melted; user read nothing readable","claude, user could not confirm",no
 T390,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T400,,no,Car,yes,T6,same vehicle as T6; identified by appearance,"claude (crops only, blind)",no
-T401,KL10BF2345,yes,Car,yes,T368,same vehicle as T368; identified by appearance,"claude (crops only, blind)",no
+T401,KL????????,partly,Car,yes,T368,same vehicle as T368; identified by appearance,"claude (crops only, blind)",no
 T402,,no,Motorcycle,yes,T307,same vehicle as T307; identified by appearance,"claude (crops only, blind)",no
 T403,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
 T404,,no,Other,yes,,auto-rickshaw,"claude (crops only, blind)",no
-T407,KL11BL1259,yes,Car,yes,,grey Etios Liva,"claude (crops only, blind)",no
+T407,KL11BL1259,yes,Car,yes,,grey Etios Liva,"claude and user, independently, agreed",no
 T410,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
-T413,KL10BF2345,yes,Car,yes,T368,same vehicle as T368; identified by appearance,"claude (crops only, blind)",no
+T413,KL????????,partly,Car,yes,T368,same vehicle as T368; identified by appearance,"claude (crops only, blind)",no
 T415,,no,Other,yes,,"Mahindra electric auto-rickshaw, green plate","claude (crops only, blind)",no
 T416,,no,Car,yes,T6,same vehicle as T6; identified by appearance,"claude (crops only, blind)",no
 T422,,no,Other,yes,,auto-rickshaw at the frame edge,"claude (crops only, blind)",no
 T423,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
-T425,,no,Motorcycle,yes,,"plate 113 px, characters melted","claude (crops only, blind)",no
+T425,,no,Motorcycle,yes,,"plate 113 px, characters melted; user read nothing readable","claude, user could not confirm",no
