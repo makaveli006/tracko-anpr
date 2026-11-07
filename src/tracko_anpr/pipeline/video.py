@@ -72,6 +72,8 @@ def probe_video(path: str | Path) -> VideoInfo:
         "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,nb_frames",
+        "-show_entries", "stream_side_data=rotation",
+        "-show_entries", "stream_tags=rotate",
         "-show_entries", "format=duration",
         "-of", "json",
         str(path),
@@ -94,14 +96,34 @@ def probe_video(path: str | Path) -> VideoInfo:
     frames_text = stream.get("nb_frames")
     frame_count = int(frames_text) if frames_text and frames_text.isdigit() else round(duration_s * fps)
 
+    width, height = int(stream["width"]), int(stream["height"])
+    if is_quarter_turn(stream_rotation(stream)):
+        # A phone held upright records landscape frames with a "rotate 90" tag. OpenCV applies the
+        # tag and hands over upright frames, so the sizes here must be the upright ones too.
+        width, height = height, width
+
     return VideoInfo(
         path=path,
-        width=int(stream["width"]),
-        height=int(stream["height"]),
+        width=width,
+        height=height,
         fps=fps,
         frame_count=frame_count,
         duration_s=duration_s,
     )
+
+
+def stream_rotation(stream: dict) -> int:
+    """The display rotation in degrees from ffprobe's stream data (side data first, then the old tag); 0 if none."""
+    for side_data in stream.get("side_data_list") or []:
+        if "rotation" in side_data:
+            return int(round(float(side_data["rotation"])))
+    tag = (stream.get("tags") or {}).get("rotate")
+    return int(round(float(tag))) if tag not in (None, "") else 0
+
+
+def is_quarter_turn(rotation_degrees: int) -> bool:
+    """True when the rotation swaps width and height (90 or 270 degrees either way)."""
+    return rotation_degrees % 180 == 90  # Python's modulo keeps this positive, so -90 and 270 count too
 
 
 def read_frames(path: str | Path, max_frames: int | None = None) -> Iterator[np.ndarray]:

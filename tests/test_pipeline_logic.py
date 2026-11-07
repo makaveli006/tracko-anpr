@@ -26,7 +26,16 @@ from tracko_anpr.pipeline.tracking import (
     format_track_id,
     lost_track_buffer,
 )
-from tracko_anpr.pipeline.video import FFmpegWriter, VideoError, VideoInfo, _parse_rate, probe_video, read_frames
+from tracko_anpr.pipeline.video import (
+    FFmpegWriter,
+    VideoError,
+    VideoInfo,
+    _parse_rate,
+    is_quarter_turn,
+    probe_video,
+    read_frames,
+    stream_rotation,
+)
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None, reason="FFmpeg is not installed"
@@ -265,3 +274,23 @@ def test_track_summary_orders_tracks_by_first_appearance(tmp_path: Path):
     assert document["counts"] == {"tracks": 2, "by_class": {"Car": 1, "Motorcycle": 0, "Bus": 1, "Truck": 0}}
     assert document["settings"] == {"image_size": 1536}
     assert len(document["tracks"]) == 2
+
+
+# --- rotation tags on phone recordings ----------------------------------------------------------
+
+
+def test_a_rotation_tag_is_read_from_side_data_or_the_old_tag():
+    assert stream_rotation({"side_data_list": [{"rotation": -90}]}) == -90
+    assert stream_rotation({"side_data_list": [{"displaymatrix": "..."}], "tags": {"rotate": "270"}}) == 270
+    assert stream_rotation({"tags": {}}) == 0
+    assert stream_rotation({}) == 0
+
+
+@pytest.mark.parametrize("degrees", [90, -90, 270, -270])
+def test_a_quarter_turn_swaps_width_and_height(degrees):
+    assert is_quarter_turn(degrees)
+
+
+@pytest.mark.parametrize("degrees", [0, 180, -180, 360])
+def test_a_half_turn_or_none_keeps_the_shape(degrees):
+    assert not is_quarter_turn(degrees)
