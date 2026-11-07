@@ -971,38 +971,43 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  The test runs were cleared (tracko-anpr reset-data --yes)
  and the demo videos processed through the worker, with the
- frozen settings. portrait-narzo.mp4 is excluded by the
- user's decision; the file stays in videos/.
+ frozen settings. The user removed the three portrait
+ recordings on the same day (portrait-narzo before its run
+ finished, portrait and portrait-new after theirs), so the
+ demo set is three videos; their results were removed from
+ the database and storage/ and the registry re-seeded.
 
- Video         Format          Length  Processing  Tracks  Vehicles  Confirmed  Coverage
- ────────────────────────────────────────────────────────────────────────────────────────
- zoomed-in     1080p 30         1:50    3 min 33 s    85       59        16      27.1%
- rope          4K 30            0:57    3 min 14 s    12        7         2      28.6%
- clear         4K 60            2:25   15 min 44 s   269      185        30      16.2%
- portrait-new  4K upright 30    1:45    8 min 10 s    79       68        14      20.6%
- portrait      4K upright 30    3:42   16 min 57 s   129      115        28      24.3%
- All five                      10:39   47 min 38 s   574      434        90      20.7%
+ Video         Format     Length  Processing  Tracks  Vehicles  Confirmed  Coverage
+ ────────────────────────────────────────────────────────────────────────────────────
+ zoomed-in     1080p 30    1:50    3 min 33 s    85       59        16      27.1%
+ rope          4K 30       0:57    3 min 14 s    12        7         2      28.6%
+ clear         4K 60       2:25   15 min 44 s   269      185        30      16.2%
+ All three                 5:12   22 min 31 s   366      251        48      19.1%
 
- By type: Car 113, Motorcycle 270, Bus 5, Truck 46. Plate
- status: 90 confirmed, 301 unconfirmed, 43 with no plate
- found. Inference latency over all frames: 69 ms per frame
+ By type: Car 75, Motorcycle 143, Bus 2, Truck 31. Plate
+ status: 48 confirmed, 175 unconfirmed, 28 with no plate
+ found. Inference latency over all frames: 50 ms per frame
  for detection and tracking (4K decoding is the cost: 35 ms
- at 1080p, 53 to 97 ms at 4K), 20 ms per plate read.
- Processing ran at 0.15x to 0.52x real time; the 4K videos
- took 4.5 to 6.5 times their length, half of it writing the
- 4K annotated copy (locating plates again in every frame and
- encoding 3840x2160). Coverage is not accuracy.
+ at 1080p, 53 to 60 ms at 4K), 29 ms per plate read.
+ Processing ran at 0.15x to 0.52x real time; clear.mp4 took
+ 6.5 times its length, half of it writing the 4K annotated
+ copy (locating plates again in every frame and encoding
+ 3840x2160). For the record, the two portrait videos ran
+ at 0.22x real time (8 and 17 minutes) with 20.6% and 24.3%
+ coverage before they were dropped. Coverage is not
+ accuracy.
 
- Registry: tracko-anpr seed-registry --reset made 40
- fictional records for 90 confirmed numbers plus 4 for
- numbers seen in no video (44 in all), so the Demo Registry
+ Registry: tracko-anpr seed-registry --reset made 18
+ fictional records for 48 confirmed numbers plus 4 for
+ numbers seen in no video (22 in all), so the Demo Registry
  page shows both matches and non-matches.
 
- Backup: scripts/backup.sh wrote backups/20261107-034329
- (database.dump 144 KB, storage.tar 2.5 GB). Proved by
+ Backup: scripts/backup.sh. Proved on the five-video set by
  wiping everything with reset-data and restoring with
  scripts/restore.sh: every row count and figure identical,
- every folder and file back.
+ every folder and file back. The current backup of the
+ three-video set is backups/20261107-035046 (storage.tar
+ 1.2 GB).
 
  Cold start: after `wsl --shutdown`, following only the
  README's "Demo day" steps, the container was up on its own
@@ -1629,12 +1634,13 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  FOOTAGE CHANGED ON 2026-11-07. The dashcam videos and their
  2-minute pieces above were removed by the user and replaced
- with six static-camera phone recordings (the user and a
+ with static-camera phone recordings (the user and a
  relative filming the roadside): clear.mp4 (4K, 60 FPS,
- 2.4 min), portrait.mp4, portrait-new.mp4 and
- portrait-narzo.mp4 (4K held upright, 30 FPS, HEVC for the
- last; 1.8 to 4.3 min), rope.mp4 (4K, 57 s) and
- zoomed-in.mp4 (1080p, 1.8 min). The settings stay frozen.
+ 2.4 min), rope.mp4 (4K, 57 s), zoomed-in.mp4 (1080p,
+ 1.8 min) and, at first, three recordings held upright
+ (portrait.mp4, portrait-new.mp4, portrait-narzo.mp4), which
+ the user removed later the same day: no portrait footage
+ in the demo. The settings stay frozen.
  First 10-second runs on them (Phase 10 smoke check):
    • The upright recordings carry a "rotate -90" tag. OpenCV
      applies it, so probe_video now reports the upright size

@@ -36,7 +36,7 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
 
    Health check without a browser: `curl -s http://localhost:8080/api/system/status` — `"ready": true`.
 
-5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer five processed videos in its selector (`clear`, `portrait`, `portrait-new`, `rope`, `zoomed-in`; 434 vehicles and 90 confirmed plates in all). `portrait-narzo.mp4` is not part of the demo and is left unprocessed on purpose. If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 10 to 25 minutes.
+5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer three processed videos in its selector (`clear`, `rope`, `zoomed-in`; 251 vehicles and 48 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 10 to 25 minutes.
 
 Nothing on any page is fetched from the internet (fonts, charts and icons are served by the app), so the demo works with the network unplugged. The database does not need the network either.
 
