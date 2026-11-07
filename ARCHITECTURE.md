@@ -1436,6 +1436,73 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  coverage before they were dropped. Coverage is not
  accuracy.
 
+ FIRST ACCURACY MEASUREMENT (2026-11-07, zoomed-in only)
+
+ The first run of "HOW TO MEASURE REAL ACCURACY", on all 59
+ counted tracks of zoomed-in. A first figure, not a firm one:
+ the sample is small and the margins are wide.
+
+ Tracks labelled                 59
+ Real distinct vehicles          32
+ Repeat tracks of those          27    (no false tracks)
+ Confirmed among the 32          16
+   correct                       15
+   wrong                          1
+ Reading accuracy                15 of 16 = 94% ±25 points
+ Plates a person can read        28
+ Reading recall                  15 of 28 = 54% ±19 points
+ Unconfirmed or no plate         16: 8 right number, 3 wrong
+                                 number, 4 no number, 1 not
+                                 checkable
+ Vehicle type errors             5 of 32
+
+ The one wrong confirmation: T26, system KL65H4621, true
+ KL65M4621 (one character, M read as H, two-line plate with a
+ shadow across it, 60 to 85 px). Crop:
+ storage/plate_crops/zoomed-in/T26_f*.png. Two readers
+ independently read M.
+
+ What it shows:
+   • Total Vehicles overcounts this video: 59 against 32 real
+     vehicles. One parked scooter (KL842291) holds 19 tracks
+     and another 5, because repeats are merged only by a
+     confirmed number and neither number confirmed, and the
+     tracker loses a parked vehicle each time traffic passes
+     in front. The repeat rule needs a position test for
+     parked vehicles; that is pipeline work for after the
+     demo.
+   • The confirmation rules are cautious, as designed: of the
+     11 unconfirmed vehicles with a checkable reading, 8 had
+     the right number and 3 the wrong one. Loosening them
+     would gain true numbers and let some errors through.
+   • Types: the two jeeps, the Thar and the red taxi came out
+     as Truck, and the auto-rickshaw as Truck (it has no class
+     of its own).
+   • Two track faults seen: T30 starts on a red taxi and jumps
+     to the jeep of T32, and the plate crop under bus track
+     T109 belongs to motorcycle T111 passing behind it.
+
+ How it was labelled: Claude read every track from crops only
+ (tools/label_contact_sheets.py, with full frames for T30 and
+ T109), without seeing the system's answers; those labels
+ were committed before any comparison (8d3fc27). The user
+ then read 21 plates blind on a page showing crops only: the
+ 11 Claude marked doubtful and 10 random sure ones. All 10
+ spot checks agreed exactly. Of the 11 doubtful, 5 agreed and
+ 6 differed; the user's reading was taken, except T3 and T4,
+ whose answers were not complete numbers and stay partly
+ legible. So 21 tracks had a human eye and the rest of the
+ sheet is Claude's alone: weaker than a fully human-labelled
+ sheet, and the figures must be quoted with that said.
+
+ Not measured: vehicles with no track at all, which needs
+ someone to watch the video. Not covered: clear, whose rows
+ would give 30 more confirmed numbers. Pipeline: the answers
+ come from job 18, run on the code committed as 73a8564.
+ Files: labels/zoomed-in_system.csv and _truth.csv; recount
+ with tools/measure_accuracy.py. No accuracy figure is shown
+ on the dashboard; at n = 16 it waits for the full sample.
+
  Registry: tracko-anpr seed-registry --reset made 18
  fictional records for 48 confirmed numbers plus 4 for
  numbers seen in no video (22 in all), so the Demo Registry
@@ -2140,7 +2207,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
 
 ══════════════════════════════════════════════════════════════
- HOW TO MEASURE REAL ACCURACY (procedure, not yet carried out)
+ HOW TO MEASURE REAL ACCURACY (procedure; first run on zoomed-in,
+ see FIRST ACCURACY MEASUREMENT)
 ══════════════════════════════════════════════════════════════
 
  WHY COVERAGE IS NOT ACCURACY
@@ -2224,6 +2292,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                       vehicle: a sign, a shadow, a person)
      duplicate_of     T<id> of an earlier track if this is the
                       same vehicle counted again; else empty
+     labelled_by      who read it, and whether two readers
+                      agreed
+     label_doubt      yes when the labeller was unsure
      note             anything odd (cut off, night, two-line
                       plate, glare)
 
@@ -2294,8 +2365,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      system's type, as a share of all labelled vehicles.
 
    A spreadsheet does all of this with COUNTIFS; a short
-   script (tools/measure_accuracy.py, to be written when the
-   first label sheet exists) should produce the same table so
+   script (tools/measure_accuracy.py, with
+   tools/label_contact_sheets.py for blind crops) produces
+   the same table so
    it can be re-run after any change.
 
  STEP 5 — WRITE IT UP HONESTLY

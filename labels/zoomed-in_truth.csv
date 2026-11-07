@@ -1,0 +1,60 @@
+track,true_number,plate_legible,true_type,is_vehicle,duplicate_of,note,labelled_by,label_doubt
+T1,KL842291,yes,Motorcycle,yes,,"two-line plate, about 50 px; second digit of the district code could be 9, 8 or 0; Claude read KL?42291; user read KL842291",user (blind check),yes
+T2,,no,Motorcycle,yes,,plate a white smear at 32 px,"claude (crops only, blind)",no
+T3,KL5??1?38,partly,Motorcycle,yes,,"two-line plate, 44 px, blurred; Claude read KL5??1?38; user read KL5711338; not a complete number as typed, so kept partly legible",user (blind check),yes
+T4,KL?0?6908,partly,Motorcycle,yes,,"one-line plate, left end lost in glare and bent; state code and series assumed from what shows; Claude read KL50?6908; user read 606908; not a complete number as typed, so kept partly legible",user (blind check),yes
+T6,KL?0?6908,partly,Motorcycle,yes,T4,same brown scooter and riders as T4,"claude (crops only, blind)",no
+T7,KL10B6138,yes,Truck,yes,,"yellow two-line plate hanging by wire, bent; BG inferred from two views; Claude read KL10BG6138; user read KL10B6138",user (blind check),yes
+T8,,no,Motorcycle,yes,T2,"dark scooter by the shop, same vehicle as T2 (man in pink shirt rides it away at about frame 1120)","claude (crops only, blind)",no
+T9,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T10,KL10B6138,no,Truck,yes,T7,duplicate inferred: white truck continuing to the right edge after T7; no plate crop,"claude (crops only, blind)",no
+T13,,no,Motorcycle,yes,T2,"dark scooter by the shop, same vehicle as T2 (man in pink shirt rides it away at about frame 1120)","claude (crops only, blind)",no
+T14,KL84C5462,yes,Truck,yes,,,"claude (crops only, blind)",no
+T17,KL84C5462,no,Truck,yes,T14,same truck as T14; crops are only the hazard stripes,"claude (crops only, blind)",no
+T20,KL13AC7477,yes,Motorcycle,yes,,one-line plate with tight lettering; the character before C is unclear; Claude read KL43?C7477; user read KL13AC7477,user (blind check),yes
+T22,,no,Motorcycle,yes,T2,"dark scooter by the shop, same vehicle as T2 (man in pink shirt rides it away at about frame 1120)","claude (crops only, blind)",no
+T23,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T24,KL145633,yes,Motorcycle,yes,,front plate dark and worn; only the end reads; Claude read KL?????633; user read KL145633,user (blind check),yes
+T26,KL65M4621,yes,Motorcycle,yes,,"two-line plate with a shadow across; letter could be M, N or H","claude and user, independently, agreed",yes
+T30,KL46N0307,yes,Car,yes,,track starts on a red Tata taxi (frame 1020) then switches to the jeep of T32; this is the taxi's plate,"claude and user, independently, agreed",yes
+T32,KL09B6190,yes,Car,yes,,blue Mahindra jeep,"claude (crops only, blind)",no
+T39,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T41,,no,Motorcycle,yes,T2,"dark scooter by the shop, same vehicle as T2 (man in pink shirt rides it away at about frame 1120)","claude (crops only, blind)",no
+T44,KL55AH0505,yes,Car,yes,,green electric-vehicle plate,"claude (crops only, blind)",no
+T49,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T50,KL57AE3750,yes,Car,yes,,,"claude and user, independently, agreed",no
+T52,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T55,KL65X4553,yes,Car,yes,,,"claude (crops only, blind)",no
+T56,KL65X4553,no,Car,yes,T55,same white Swift as T55; no plate crop,"claude (crops only, blind)",no
+T58,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T60,KL54Q6718,yes,Truck,yes,,,"claude (crops only, blind)",no
+T63,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T64,,no,Truck,yes,,"white Bolero pickup; plate never in view, the crop is a CITY KING badge","claude (crops only, blind)",no
+T68,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T70,KL84C7110,yes,Motorcycle,yes,,,"claude and user, independently, agreed",no
+T71,KL05BB1301,yes,Motorcycle,yes,,two-line plate with a red scratch on line two,"claude (crops only, blind)",no
+T72,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T73,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T74,KL65D8949,yes,Motorcycle,yes,,reflection at the left; 4 could be 6,"claude and user, independently, agreed",yes
+T76,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T77,KL29D6432,yes,Car,yes,,,"claude and user, independently, agreed",no
+T78,KL10AS8101,yes,Motorcycle,yes,,first letter of line two partly hidden by a reflection,"claude and user, independently, agreed",yes
+T83,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T85,KL55AJ9277,yes,Car,yes,,,"claude and user, independently, agreed",no
+T86,KL84G2889,yes,Motorcycle,yes,,,"claude and user, independently, agreed",no
+T92,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T93,KL10AQ0434,yes,Car,yes,,,"claude (crops only, blind)",no
+T95,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T97,KL43J6989,yes,Motorcycle,yes,,,"claude and user, independently, agreed",no
+T99,KL54P0035,yes,Truck,yes,,,"claude (crops only, blind)",no
+T103,KL65M6136,yes,Other,yes,,auto-rickshaw; plate about 60 px,"claude and user, independently, agreed",yes
+T105,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T106,KL42D4311,yes,Bus,yes,,white Daliya bus,"claude and user, independently, agreed",no
+T109,KL42D4311,no,Bus,yes,T106,second box on the same bus; its plate crop KL.10 AU.1896 belongs to motorcycle T111 passing behind (frame 2981),"claude (crops only, blind)",no
+T113,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T115,HR51AS0213,yes,Car,yes,,Haryana plate,"claude and user, independently, agreed",no
+T117,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T119,KL71P2999,yes,Car,yes,,Mahindra Thar,"claude and user, independently, agreed",no
+T121,KL65M5369,yes,Truck,yes,,,"claude (crops only, blind)",no
+T125,KL842291,yes,Motorcycle,yes,T1,"parked scooter, same vehicle as T1 under a new track id","claude (crops only, blind)",no
+T127,KL71B2596,yes,Motorcycle,yes,,,"claude and user, independently, agreed",no
