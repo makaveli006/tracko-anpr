@@ -118,6 +118,21 @@ class VehicleTracker:
             vehicles.append(TrackedVehicle(track_id, class_name, float(confidence), tuple(box)))
         return vehicles
 
+    def detect(self, frame: np.ndarray) -> list[TrackedVehicle]:
+        """The vehicles in one frame on its own, without tracking (track id -1): for sampling checks."""
+        options = {key: value for key, value in self._options.items() if key not in ("persist", "tracker")}
+        boxes = self.model.predict(frame, **options)[0].boxes
+        if boxes is None:
+            return []
+        found = []
+        for class_id, confidence, box in zip(
+            boxes.cls.int().tolist(), boxes.conf.tolist(), boxes.xyxy.tolist(), strict=True
+        ):
+            class_name = VEHICLE_CLASSES.get(class_id)
+            if class_name is not None:
+                found.append(TrackedVehicle(-1, class_name, float(confidence), tuple(box)))
+        return found
+
     def close(self) -> None:
         self._tracker_config.unlink(missing_ok=True)
 

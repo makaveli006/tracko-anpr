@@ -20,6 +20,15 @@ from tracko_anpr.pipeline.annotate import (
     render_annotated_video,
 )
 from tracko_anpr.pipeline.direction import Direction, DirectionRules, direction_label, short_direction, travel_direction
+from tracko_anpr.pipeline.plate_check import (
+    BORDERLINE,
+    GOOD,
+    LOW,
+    NO_PLATES,
+    NO_VEHICLES,
+    sample_frame_numbers,
+    summarise,
+)
 from tracko_anpr.pipeline.results import (
     format_timestamp,
     frame_time,
@@ -43,6 +52,7 @@ from tracko_anpr.pipeline.video import (
     is_quarter_turn,
     probe_video,
     read_frames,
+    read_frames_at,
     stream_rotation,
 )
 
@@ -236,6 +246,45 @@ def test_writing_part_of_a_video_takes_only_that_much_audio(tmp_path: Path):
             writer.write(np.zeros((48, 64, 3), dtype=np.uint8))
     assert probe_video(output).frame_count == 10
     assert _audio_seconds(output) < 0.5
+
+
+# --- the plate-size check -----------------------------------------------------------------------------
+
+
+def test_sampled_frames_are_spread_over_the_video_and_skip_its_ends():
+    numbers = sample_frame_numbers(1000, 16)
+    assert len(numbers) == 16 and numbers == sorted(numbers)
+    assert numbers[0] == 50 and numbers[-1] == 949  # the first and last 5% are left out
+    short = sample_frame_numbers(20, 16)
+    assert len(short) == 16 and short[0] == 1 and short[-1] == 18
+    assert sample_frame_numbers(12, 16) == list(range(0, 11))  # shorter still: every frame that fits
+    assert sample_frame_numbers(3, 16) == [0, 1]
+    assert sample_frame_numbers(0, 16) == [] and sample_frame_numbers(100, 0) == []
+
+
+def test_the_verdict_follows_the_largest_plates_seen():
+    good = summarise([40, 55, 70, 90, 120, 135, 150, 160, 170, 180], vehicles_seen=12, frames_sampled=16)
+    assert (good.verdict, good.plates_seen, good.vehicles_seen) == (GOOD, 10, 12)
+    assert good.largest_width_px == 170 and good.median_width_px == 128  # the 90th percentile, the median
+    assert (good.share_under_60, good.share_over_130) == (0.2, 0.5)
+    assert "170 px" in good.message and "most of them should be read" in good.message
+
+    assert summarise([40, 50, 60, 70, 80, 90, 100, 110, 120, 125], 10, 16).verdict == BORDERLINE
+    low = summarise([20, 30, 35, 40, 45, 50, 55], 7, 16)
+    assert low.verdict == LOW and "Move closer or zoom in" in low.message
+    assert summarise([], 5, 16).verdict == NO_PLATES
+    none = summarise([], 0, 16)
+    assert none.verdict == NO_VEHICLES and none.median_width_px is None and "16 sampled frames" in none.message
+    assert set(good.as_dict()) >= {"verdict", "message", "largest_width_px"}
+
+
+@needs_ffmpeg
+def test_frames_can_be_read_by_seeking_to_their_numbers(tmp_path: Path):
+    info = _test_video(tmp_path / "source.mp4", 64, 48, 12)
+    got = list(read_frames_at(info.path, [9, 2, 7, 40, -1]))
+    assert [number for number, _ in got] == [2, 7, 9]  # ascending, out-of-range numbers ignored
+    assert all(frame.shape == (48, 64, 3) for _, frame in got)
+    assert list(read_frames_at(info.path, [])) == []
 
 
 # --- travel direction from the boxes ----------------------------------------------------------------

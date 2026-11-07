@@ -14,10 +14,12 @@ from result_builders import a_result, video_info
 from sqlalchemy import create_engine, func, select
 
 from tracko_anpr.config import load_settings
-from tracko_anpr.db.models import COMPLETED, FAILED, PROCESSING, QUEUED, Base, ProcessingJob, VehicleTrack
+from tracko_anpr.db.models import COMPLETED, FAILED, PROCESSING, QUEUED, Base, ProcessingJob, VehicleTrack, Video
 from tracko_anpr.db.session import make_session_factory, session_scope
 from tracko_anpr.db.store import create_job, queue_job, register_video
+from tracko_anpr.pipeline.plate_check import summarise
 from tracko_anpr.pipeline.video import VideoError
+from tracko_anpr.services.videos import request_plate_check
 from tracko_anpr.worker.service import Worker, remove_result_folders, result_folders
 
 
@@ -70,15 +72,99 @@ class FakeReader:
         self.stopped = True
 
 
-def worker(factory, settings, pipeline=None, **options) -> Worker:
+def fake_check(calls: list | None = None, fail_with: Exception | None = None):
+    """Stands in for check_plate_sizes: records the call and answers a fixed result, or raises."""
+    calls = calls if calls is not None else []
+
+    def check(path, settings, models=None):
+        calls.append({"video": Path(path), "models": models})
+        if fail_with is not None:
+            raise fail_with
+        return summarise([70, 90, 140], vehicles_seen=4, frames_sampled=3)
+
+    return check
+
+
+def worker(factory, settings, pipeline=None, check=None, **options) -> Worker:
     return Worker(
         settings,
         factory,
         worker_id="test-1",
         run_pipeline=pipeline or fake_pipeline(),
         reader_factory=FakeReader,
+        check_plates=check or fake_check(),
         **options,
     )
+
+
+def check_requested(factory, settings, name="clip_part01") -> int:
+    """A registered video with a pending plate-size check, as an upload leaves it. Returns the video id."""
+    with session_scope(factory) as session:
+        video = register_video(session, video_info(name), settings.root, "upload")
+        request_plate_check(session, video.id)
+        return video.id
+
+
+def check_state(factory, video_id) -> dict:
+    with session_scope(factory) as session:
+        return dict(session.get(Video, video_id).plate_check)
+
+
+# --- plate-size checks ----------------------------------------------------------------------------
+
+
+def test_a_pending_plate_check_is_claimed_run_and_recorded_on_the_video(factory, settings):
+    video_id = check_requested(factory, settings)
+    assert check_state(factory, video_id)["status"] == "pending"
+    calls: list = []
+    w = worker(factory, settings, check=fake_check(calls))
+    claimed = w.claim_next_check()
+    assert claimed == video_id
+    assert check_state(factory, video_id)["status"] == "running"
+    assert check_state(factory, video_id)["worker_id"] == "test-1"
+    assert w.run_check(claimed) == "done"
+    state = check_state(factory, video_id)
+    assert state["status"] == "done" and state["finished_at"] and state["error"] is None
+    assert state["result"]["verdict"] == "good" and state["result"]["largest_width_px"] == 140
+    assert calls[0]["video"].name == "clip_part01.mp4" and calls[0]["models"] is None  # a fake gets no models
+    assert w.claim_next_check() is None
+
+
+def test_a_failing_plate_check_is_recorded_and_the_worker_goes_on_to_the_next_job(factory, settings):
+    video_id = check_requested(factory, settings, "one")
+    job_id = queued(factory, settings, "two")
+    w = worker(factory, settings, check=fake_check(fail_with=VideoError("broken file")))
+    assert w.run_forever(once=True) == 1  # the check ran (and failed), then the one job
+    state = check_state(factory, video_id)
+    assert state["status"] == "failed" and state["error"] == "VideoError: broken file"
+    assert job_row(factory, job_id).status == COMPLETED
+
+
+def test_a_plate_check_is_served_before_a_queued_job(factory, settings):
+    order: list[str] = []
+
+    def check(path, settings, models=None):
+        order.append("check")
+        return summarise([100], 1, 1)
+
+    def pipeline(video, settings, options, progress, name=None, reader=None):
+        order.append("job")
+        return a_result(video_info(name))
+
+    check_requested(factory, settings, "one")
+    queued(factory, settings, "two")
+    worker(factory, settings, pipeline=pipeline, check=check).run_forever(once=True)
+    assert order == ["check", "job"]
+
+
+def test_a_check_left_running_by_a_dead_worker_is_queued_again_on_start(factory, settings):
+    video_id = check_requested(factory, settings)
+    w = worker(factory, settings)
+    w.claim_next_check()
+    assert check_state(factory, video_id)["status"] == "running"
+    worker(factory, settings).start()
+    state = check_state(factory, video_id)
+    assert state["status"] == "pending" and state["worker_id"] is None
 
 
 # --- the queue -----------------------------------------------------------------------------------

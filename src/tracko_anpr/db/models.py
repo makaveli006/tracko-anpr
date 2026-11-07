@@ -82,6 +82,9 @@ class Video(Base):
     frame_count: Mapped[int] = mapped_column(Integer)
     duration_s: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    plate_check: Mapped[dict | None] = mapped_column(JSONColumn)
+    """The plate-size check (services/videos.py): status pending | running | done | failed, times, worker,
+    error, and the result (pipeline/plate_check.py). The worker serves pending checks before queued jobs."""
 
     jobs: Mapped[list[ProcessingJob]] = relationship(back_populates="video", cascade="all, delete-orphan")
 

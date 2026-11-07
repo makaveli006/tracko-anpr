@@ -165,6 +165,19 @@ def test_a_real_mp4_is_stored_under_uploads_and_registered(client, settings, tmp
     assert not (settings.uploads_dir / "My-Clip.part.mp4").exists()
     assert client.get(f"/api/videos/{video['id']}").json()["name"] == "My-Clip"
     assert client.get("/api/videos").json()[0]["id"] == video["id"]
+    # Every upload asks the worker for a plate-size check; the result arrives on the same record.
+    assert video["plate_check"]["status"] == "pending" and video["plate_check"]["result"] is None
+    assert client.get(f"/api/videos/{video['id']}").json()["plate_check"]["requested_at"]
+
+
+def test_a_plate_size_check_can_be_requested_again(client, app, settings):
+    video_id = stored_run(app, settings)
+    assert client.get(f"/api/videos/{video_id}").json()["plate_check"] is None  # registered before the check existed
+    response = client.post(f"/api/videos/{video_id}/plate-check")
+    assert response.status_code == 202, response.text
+    assert response.json()["plate_check"]["status"] == "pending"
+    assert client.post("/api/videos/999/plate-check").status_code == 404
+    assert client.get("/api/jobs").json().__len__() == 1  # a check is not a processing job
 
 
 @needs_ffmpeg

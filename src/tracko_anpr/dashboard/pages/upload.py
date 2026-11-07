@@ -3,6 +3,10 @@
 Nothing here is simulated. The file goes through the same checks as the API's upload, the
 "Process Video" button inserts a queued job, and the timeline and progress bar are redrawn
 every second from the job row the worker writes. A failed job shows its reason in red.
+
+Every new video also gets a plate-size check (pipeline/plate_check.py): the worker samples a few
+frames and reports how wide the plates are, so the user knows before the full run whether the
+recording can work. The File Information card shows it; "Check again" asks for a fresh one.
 """
 
 from __future__ import annotations
@@ -15,9 +19,10 @@ from tracko_anpr.dashboard.components.timeline import timeline
 from tracko_anpr.dashboard.format import human_duration, human_size, when
 from tracko_anpr.dashboard.layout import frame
 from tracko_anpr.dashboard.runtime import query, runtime
+from tracko_anpr.pipeline.plate_check import BORDERLINE, GOOD, GOOD_WIDTH, LOW
 from tracko_anpr.services import jobs, videos
 from tracko_anpr.services.jobs import JobStatus
-from tracko_anpr.services.videos import MAX_UPLOAD_BYTES, InvalidVideo, VideoSummary
+from tracko_anpr.services.videos import MAX_UPLOAD_BYTES, InvalidVideo, PlateCheckState, VideoSummary
 
 POLL_SECONDS = 1.0
 GUIDE = Path(__file__).resolve().parents[3].parent / "RECORDING_GUIDE.md"
@@ -73,7 +78,7 @@ class UploadPage:
             with ui.expansion("Recording tips for better results", icon="videocam").classes("w-full tk-tips"):
                 ui.markdown(recording_tips()).classes("tk-secondary text-sm tk-tips-body")
                 ui.label(
-                    "Plate at least 130 px wide, camera in line with the traffic, 1080p at 30 fps. "
+                    f"Plate at least {GOOD_WIDTH} px wide, camera in line with the traffic, 1080p at 30 fps. "
                     "The full guide is RECORDING_GUIDE.md in the project folder."
                 ).classes("tk-muted text-xs mt-1")
             self.uploader = (
@@ -111,11 +116,11 @@ class UploadPage:
             self.uploader.reset()
             return
         self.job = None
-        self.stop_polling()
         self.uploader.reset()
         ui.notify(f"{original} uploaded as {self.video.name}.", type="positive")
         self.render_file()
         self.render_status()
+        self.start_polling()  # the plate-size check was requested with the upload
         await self.refresh_videos()
 
     # --- file information and the process button -------------------------------------------------
@@ -143,6 +148,9 @@ class UploadPage:
                 ):
                     ui.label(key).classes("k")
                     ui.label(value).classes("v")
+                ui.label("Plate-size check").classes("k")
+                with ui.column().classes("v gap-0"):
+                    self.plate_check_lines(video.plate_check)
             with ui.row().classes("mt-4 gap-3 items-center"):
                 busy = self.job is not None and self.job.status in ("queued", "processing")
                 label = (
@@ -153,6 +161,47 @@ class UploadPage:
                     button.disable()
                 if video.completed_job_id is not None:
                     ui.label("Processed before; the dashboard shows the latest result.").classes("tk-muted text-sm")
+
+    def plate_check_lines(self, state: PlateCheckState | None) -> None:
+        """The plate-size check's state: a spinner while it runs, the verdict in the theme's colours when done."""
+        if state is None:
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.label("Not checked").classes("tk-muted")
+                self.check_link("Check now")
+            return
+        if state.live:
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.spinner(size="sm").classes("tk-green")
+                ui.label(
+                    "Checking plate sizes: a few sampled frames, about half a minute"
+                    + (" (waiting for the worker)" if state.status == "pending" else "")
+                ).classes("tk-secondary")
+            return
+        if state.status == "failed" or not state.result:
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.label(f"Check failed: {state.error or 'no result'}").classes("tk-amber")
+                self.check_link("Check again")
+            return
+        result = state.result
+        colour = {GOOD: "tk-green", BORDERLINE: "tk-amber", LOW: "tk-red"}.get(result.get("verdict"), "tk-muted")
+        ui.label(result.get("message", "")).classes(f"{colour} font-medium")
+        with ui.row().classes("items-center gap-2 no-wrap"):
+            ui.label(
+                f"Size only: blur, angle and light are not checked. Checked {when(state.finished_at)}. "
+                "See the recording tips above."
+            ).classes("tk-muted text-xs")
+            self.check_link("Check again")
+
+    def check_link(self, text: str) -> None:
+        ui.button(text, color=None, on_click=self.request_check).props("flat dense no-caps").classes("tk-link text-xs")
+
+    async def request_check(self) -> None:
+        if self.video is None:
+            return
+        self.video = await query(videos.request_plate_check, self.video.id)
+        ui.notify("Plate-size check requested; the worker will measure a few frames.", type="info")
+        self.render_file()
+        self.start_polling()
 
     async def start(self) -> None:
         if self.video is None:
@@ -215,13 +264,18 @@ class UploadPage:
             self.poller.deactivate()
 
     async def poll(self) -> None:
-        if self.job is None:
+        """Follow the job and the plate-size check while either is live; stop when neither is."""
+        live = await self.poll_job()
+        live = await self.poll_check() or live
+        if not live:
             self.stop_polling()
-            return
+
+    async def poll_job(self) -> bool:
+        if self.job is None:
+            return False
         job = await query(jobs.get_job, self.job.id)
         if job is None:
-            self.stop_polling()
-            return
+            return False
         changed = (job.status, job.stage, job.stage_done, job.progress) != (
             self.job.status,
             self.job.stage,
@@ -229,8 +283,8 @@ class UploadPage:
             self.job.progress,
         )
         self.job = job
-        if job.status in ("completed", "failed"):
-            self.stop_polling()
+        finished = job.status in ("completed", "failed")
+        if finished:
             self.video = await query(videos.get_video, self.video.id)
             self.render_file()
             await self.refresh_videos()
@@ -239,8 +293,22 @@ class UploadPage:
                 type="positive" if job.status == "completed" else "negative",
                 close_button=True,
             )
-        if changed or job.status in ("completed", "failed"):
+        if changed or finished:
             self.render_status()
+        return not finished
+
+    async def poll_check(self) -> bool:
+        if self.video is None or self.video.plate_check is None or not self.video.plate_check.live:
+            return False
+        fresh = await query(videos.get_video, self.video.id)
+        if fresh is None or fresh.plate_check is None:
+            return False
+        if fresh.plate_check.status != self.video.plate_check.status:
+            self.video = fresh
+            self.render_file()
+            if not fresh.plate_check.live:
+                await self.refresh_videos()
+        return fresh.plate_check.live
 
     # --- the list of videos ----------------------------------------------------------------------
 
@@ -257,6 +325,7 @@ class UploadPage:
                 {"name": "format", "label": "Format", "field": "format", "align": "left"},
                 {"name": "duration", "label": "Duration", "field": "duration", "align": "right"},
                 {"name": "status", "label": "Status", "field": "status", "align": "left"},
+                {"name": "plates", "label": "Plate size", "field": "plates", "align": "left"},
                 {"name": "uploaded", "label": "Added", "field": "uploaded", "align": "left"},
             ]
             rows = [
@@ -266,6 +335,7 @@ class UploadPage:
                     "format": f"{v.width}×{v.height} @ {v.fps_decimal:.0f} fps",
                     "duration": human_duration(v.duration_s),
                     "status": _status_text(v),
+                    "plates": _check_text(v.plate_check),
                     "uploaded": when(v.created_at),
                 }
                 for v in listed
@@ -286,6 +356,8 @@ class UploadPage:
             self.job = await query(jobs.get_job, self.video.latest_job.id)
             if self.job is not None and self.job.status in ("queued", "processing"):
                 self.start_polling()
+        if self.video.plate_check is not None and self.video.plate_check.live:
+            self.start_polling()
         self.render_file()
         self.render_status()
 
@@ -297,6 +369,19 @@ def _status_text(video: VideoSummary) -> str:
     if job.status == "processing":
         return f"Processing {job.progress:.0%} of {job.stage or ''}".strip()
     return {"queued": "Queued", "completed": "Completed", "failed": "Failed"}.get(job.status, job.status)
+
+
+def _check_text(state: PlateCheckState | None) -> str:
+    if state is None:
+        return "—"
+    if state.live:
+        return "Checking…"
+    if state.status == "failed" or not state.result:
+        return "Check failed"
+    result = state.result
+    words = {GOOD: "Good", BORDERLINE: "Borderline", LOW: "Too small"}
+    label = words.get(result.get("verdict"), "No plates" if result.get("vehicles_seen") else "No vehicles")
+    return f"{label} ({result['largest_width_px']} px)" if result.get("largest_width_px") else label
 
 
 @ui.page("/upload")

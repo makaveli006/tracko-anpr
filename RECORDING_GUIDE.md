@@ -41,6 +41,8 @@ Rule of thumb for a phone recording in landscape at 1080p (a typical phone camer
 2. Estimate the plate's width against the picture: at 1080p, 130 pixels is about **7% of the frame width** — roughly the width of a thumb held at arm's length against a laptop screen.
 3. If the plate is a thin sliver, the recording will give unconfirmed numbers. Move closer or zoom in and record again; it is cheaper than processing.
 
+The Upload page does this check for you: after an upload, the worker measures the plates in 24 sampled frames and the File Information card says whether the largest plates reach the sizes above (size only; blur and angle are not checked).
+
 After processing, the dashboard tells you how it went: open any detection and look at the **Width px** column in the observations table. If most widths are under 60, the camera was too far.
 
 ## 6. What we measured

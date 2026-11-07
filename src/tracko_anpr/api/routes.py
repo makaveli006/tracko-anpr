@@ -121,6 +121,15 @@ def process_video(video_id: int, session: Annotated[Session, SessionDep]):
     return job
 
 
+@router.post("/videos/{video_id}/plate-check", response_model=videos.VideoSummary, status_code=202)
+def request_plate_check(video_id: int, session: Annotated[Session, SessionDep]):
+    """Ask the worker to measure the plate sizes of a video (a few sampled frames; results in `plate_check`)."""
+    video = videos.request_plate_check(session, video_id)
+    if video is None:
+        raise _not_found(f"No video with id {video_id}.")
+    return video
+
+
 @router.get("/videos/{video_id}/results", response_model=results.VideoResults)
 def video_results(video_id: int, session: Annotated[Session, SessionDep]):
     found = results.video_results(session, video_id)

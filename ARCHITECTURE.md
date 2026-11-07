@@ -110,6 +110,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    POST /api/videos
    GET  /api/videos
    POST /api/videos/{id}/process
+   POST /api/videos/{id}/plate-check
    GET  /api/jobs/{id}
    GET  /api/videos/{id}/results
    GET  /api/videos/{id}/detections
@@ -269,12 +270,48 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
     for better results", rendered from the same file. Zero
     pipeline change; it is the largest lever on coverage.
 
- 2. Plate-size check on upload (future). Sample a few frames
-    of an uploaded video, run the detectors on them, and tell
-    the user the typical plate width before the full run
-    ("about 45 px: expect low coverage"). Mirrors Axis's
-    pixel counter. Touches the Upload page and a small
-    sampling service; no change to the pipeline's results.
+ 2. PLATE-SIZE CHECK ON UPLOAD — done 2026-11-07.
+    Before the full run, which takes minutes, the worker
+    samples 24 frames spread evenly over the video (the first
+    and last 5% left out), finds the vehicles in them with
+    YOLO26m (detection only, no tracking: VehicleTracker.
+    detect) and the plates on those vehicles with sentry-26s,
+    exactly as stage 4 would, and reports the plate widths
+    (pipeline/plate_check.py): the median, the 90th
+    percentile as "the largest plates seen", the shares under
+    60 px and at or over 130 px, and a verdict with one
+    sentence for the user. The verdict follows the largest
+    plates, not the median, because a plate is only big when
+    its vehicle is close and that is where the pipeline reads
+    it; the thresholds are the recording guide's (130 px →
+    good, 60 to 130 → borderline, under 60 → low; no plates
+    found on the vehicles seen, or no vehicles, are their own
+    verdicts). It measures size only: blur, angle and light
+    are not checked, and nothing it finds is stored as a
+    result. Mirrors Axis's pixel counter.
+    Where it runs: never in the web process. videos.plate_
+    check (migration e5a1c9d2b7f3) holds the state (pending |
+    running | done | failed, times, worker, error) and the
+    result; every upload and ingest requests a check; the
+    worker serves a pending check before the next queued job
+    (half a minute against minutes, and someone is waiting on
+    the Upload page), keeps the two detectors loaded between
+    checks, and on start queues again any check a dead worker
+    left running. A check is not a processing_jobs row, so
+    the job recovery that deletes result folders never
+    touches it. POST /api/videos/{id}/plate-check asks for
+    one (202; the state travels in VideoSummary.plate_check);
+    tracko-anpr check <video> [--frames 24] runs it from the
+    command line. The Upload page's File Information card
+    shows a spinner while it runs, then the sentence in green
+    / amber / red with "Check again"; the videos list has a
+    "Plate size" column; videos registered before the check
+    existed read "Not checked · Check now".
+    Measured on zoomed-in: 60 vehicles and 41 plates in 24
+    frames in 28 s on the command line (42 s from the click
+    on the Upload page, the worker's model load included),
+    median 44 px, largest 107 px, verdict "borderline: some
+    will be read", which matches its 27% coverage.
 
  3. DIRECTION PER TRACK AND NEW / UPDATE / LOST EVENTS —
     done 2026-11-07.
@@ -910,7 +947,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
    videos              one file: name (its folder under
                        storage/), path, size, width, height,
-                       exact frame rate, frame count, length
+                       exact frame rate, frame count, length,
+                       and plate_check (the plate-size check's
+                       state and result, JSON)
    processing_jobs     one run of the pipeline over one
                        video; also the worker's queue:
                        status (queued, processing, completed,
@@ -1069,6 +1108,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  PAGE 2: Upload & Process
    • Upload videos
    • Video metadata
+   • Plate-size check (are the plates big enough to read?)
    • Start processing
    • Processing progress and errors
 
