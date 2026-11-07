@@ -1245,6 +1245,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  rope          4K 30       0:57    3 min 14 s    12        7         2      28.6%
  clear         4K 60       2:25   15 min 44 s   269      185        30      16.2%
  All three                 5:12   22 min 31 s   366      251        48      19.1%
+ (rope was dropped from the demo set later that day; the
+ set is clear and zoomed-in: 354 tracks, 244 vehicles, 46
+ confirmed, 18.9% coverage.)
 
  By type: Car 75, Motorcycle 143, Bus 2, Truck 31. Plate
  status: 48 confirmed, 175 unconfirmed, 28 with no plate
@@ -1916,7 +1919,10 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  1.8 min) and, at first, three recordings held upright
  (portrait.mp4, portrait-new.mp4, portrait-narzo.mp4), which
  the user removed later the same day: no portrait footage
- in the demo. The settings stay frozen.
+ in the demo. Later still on 2026-11-07 the user deleted
+ rope.mp4 as well, so the demo set is clear and zoomed-in;
+ rope's rows and result files were removed, and its figures
+ below stay as measurements only. The settings stay frozen.
  First 10-second runs on them (Phase 10 smoke check):
    • The upright recordings carry a "rotate -90" tag. OpenCV
      applies it, so probe_video now reports the upright size

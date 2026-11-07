@@ -36,7 +36,7 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
 
    Health check without a browser: `curl -s http://localhost:8080/api/system/status` — `"ready": true`.
 
-5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer three processed videos in its selector (`clear`, `rope`, `zoomed-in`; 251 vehicles and 48 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 2.5 to 11 minutes, a 1080p one about twice its length.
+5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer the two demo videos in its selector (`clear` and `zoomed-in`; 244 vehicles and 46 confirmed plates between them). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 2.5 to 11 minutes, a 1080p one about twice its length.
 
 **Recording new videos:** follow [RECORDING_GUIDE.md](RECORDING_GUIDE.md) — plate at least 130 px wide, camera in line with the traffic, 1080p at 30 fps. It is the biggest lever on how many plates get read.
 

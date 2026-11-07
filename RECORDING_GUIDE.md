@@ -45,7 +45,7 @@ After processing, the dashboard tells you how it went: open any detection and lo
 
 ## 6. What we measured
 
-The advice above comes from Axis Communications' published guidance and from our own runs, which agree. Share of plate readings that came back confident (≥0.85), by plate width in pixels, on the three demo videos:
+The advice above comes from Axis Communications' published guidance and from our own runs, which agree. Share of plate readings that came back confident (≥0.85), by plate width in pixels, on the demo videos (rope has since been dropped from the set; its row stays as a measurement):
 
 | Video | Resolution | Median plate width | < 60 px | 60–100 px | 100–150 px | ≥ 150 px |
 |---|---|---|---|---|---|---|
