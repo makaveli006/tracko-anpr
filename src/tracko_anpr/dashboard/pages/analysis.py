@@ -79,6 +79,7 @@ class AnalysisPage:
                     else:
                         self.player.empty("No processed video yet. Upload one on the Upload & Process page.")
                 with ui.element("div").classes("tk-card w-full"):
+                    self.tracks_box = ui.element("div").classes("w-full")
                     self.tracks_card()
             with ui.column().classes("gap-4").style("flex: 3 1 0; min-width: 300px"):
                 with ui.element("div").classes("tk-card w-full"):
@@ -119,6 +120,18 @@ class AnalysisPage:
                 ui.label(value).classes("v")
 
     def tracks_card(self) -> None:
+        self.tracks_box.clear()
+        with self.tracks_box:
+            self._tracks_card_body()
+
+    async def refresh_tracks(self) -> None:
+        """After a correction: fetch the rows again and redraw the table."""
+        if self.selected is None:
+            return
+        self.rows = await query(results.video_detections, self.selected.id, newest_first=False)
+        self.tracks_card()
+
+    def _tracks_card_body(self) -> None:
         with ui.row().classes("w-full items-center justify-between no-wrap"):
             ui.label("Tracked Vehicles").classes("tk-card-title")
             ui.label(f"{len(self.rows)} counted vehicles, in order of appearance").classes("tk-secondary text-sm")
@@ -138,7 +151,7 @@ class AnalysisPage:
     async def row_clicked(self, row: DetectionRow) -> None:
         if self.player is not None:
             self.player.seek(max(0.0, row.detection.first_seen_s - 0.5), play=False)
-        await show_detection(row.detection.track_pk)
+        await show_detection(row.detection.track_pk, on_change=self.refresh_tracks)
 
 
 @ui.page("/analysis")

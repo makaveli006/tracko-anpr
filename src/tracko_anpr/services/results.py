@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import Select, func, select
@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 from tracko_anpr.db import metrics
 from tracko_anpr.db.metrics import Detection, Summary, latest_completed_jobs
 from tracko_anpr.db.models import PlateObservation, ProcessingJob, RecognitionEvent, VehicleTrack, Video
-from tracko_anpr.services import registry
+from tracko_anpr.services import corrections, registry
+from tracko_anpr.services.corrections import Correction
 from tracko_anpr.services.registry import RegistryRecord
 
 
@@ -66,16 +67,27 @@ def video_results(session: Session, video_id: int) -> VideoResults | None:
 
 @dataclass(frozen=True)
 class DetectionRow:
-    """One line of a detections table, with its fictional registry match if any."""
+    """One line of a detections table, with its fictional registry match and its operator correction, if any.
+
+    `detection` is always the system's result; `correction` is what a person changed it to.
+    """
 
     detection: Detection
     registry_match: RegistryRecord | None
+    correction: Correction | None = None
 
 
 def with_registry(session: Session, rows: list[Detection]) -> list[DetectionRow]:
+    """Attach the registry match (by the system's confirmed number) and the current correction to each row."""
     matches = registry.lookup_many(session, [row.registration_number for row in rows if row.status == "confirmed"])
+    corrected = corrections.current_corrections(session, [row.track_pk for row in rows])
     return [
-        DetectionRow(row, matches.get(row.registration_number) if row.status == "confirmed" else None) for row in rows
+        DetectionRow(
+            row,
+            matches.get(row.registration_number) if row.status == "confirmed" else None,
+            corrected.get(row.track_pk),
+        )
+        for row in rows
     ]
 
 
@@ -113,6 +125,10 @@ class DetectionDetail:
     share: float
     observations: list[Observation]
     """Every plate examined for this track, in frame order: the multi-frame evidence."""
+    correction: Correction | None = None
+    """The current operator correction, if any; the system's result above is unchanged by it."""
+    corrections: list[Correction] = field(default_factory=list)
+    """Every correction made to this track, newest first."""
 
 
 def detection_detail(session: Session, track_pk: int) -> DetectionDetail | None:
@@ -125,7 +141,10 @@ def detection_detail(session: Session, track_pk: int) -> DetectionDetail | None:
     observations = session.scalars(
         select(PlateObservation).where(PlateObservation.track_pk == track.id).order_by(PlateObservation.frame)
     ).all()
+    made = corrections.history(session, track.id)
     return DetectionDetail(
+        correction=made[0] if made else None,
+        corrections=made,
         detection=detection,
         registry_match=registry.lookup(session, event.registration_number) if event.status == "confirmed" else None,
         frames_seen=track.frames_seen,
@@ -222,13 +241,20 @@ def export_history_csv(session: Session, **filters) -> str:
     writer.writerow(
         ["video", "track", "vehicle_type", "first_seen_s", "last_seen_s", "registration_number", "status"]
         + ["confidence", "agreeing_frames", "readings", "reason", "demo_registry_match"]
+        + ["corrected_number", "corrected_type", "corrected_by", "corrected_at"]
     )
     for row in rows:
-        d = row.detection
+        d, c = row.detection, row.correction
+        corrected = (
+            [c.corrected_number or "", c.corrected_type or "", c.corrected_by, c.created_at.isoformat()]
+            if c
+            else ["", "", "", ""]
+        )
         writer.writerow(
             [d.video_name, f"T{d.track_id}", d.vehicle_type, d.first_seen_s, d.last_seen_s, d.registration_number or ""]
             + [d.status, f"{d.confidence:.4f}", d.support, d.readings, d.reason]
             + [row.registry_match.owner_name if row.registry_match else ""]
+            + corrected
         )
     return buffer.getvalue()
 

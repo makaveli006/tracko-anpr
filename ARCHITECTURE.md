@@ -190,6 +190,46 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  annotated video answered 206 with the right Content-Range,
  and a .mov upload was refused with its message.
 
+ MANUAL NUMBER PLATE CORRECTION (services/corrections.py,
+ added 2026-11-07)
+
+ An operator can correct a recognised number and/or the
+ vehicle type from the details dialog (any detections table:
+ Overview, Video Analysis, Detection History). The system's
+ own result is never changed: the correction is stored
+ beside it in plate_corrections, with the system's number,
+ status and type at the time, an optional name (remembered in
+ the browser) and note. The newest correction per track is
+ the current one; earlier ones stay as history and "Undo"
+ removes the newest.
+
+ Rules (the service enforces them, the API answers 400 with
+ the reason): the number is normalised and must pass the
+ pipeline's own Indian-format check (is_valid_plate); the type
+ must be one of the four classes; a correction that equals the
+ system's result is refused.
+
+ Where it shows: the corrected value in the table cell with an
+ amber pencil and a dashed underline, the system's value in
+ the tooltip; both values in the dialog; an "Operator
+ Corrections" card on Analytics (detections corrected,
+ numbers, confirmed numbers changed and their share, types).
+ Nothing else moves: Total Vehicles, Recognized Plates,
+ coverage, the registry Match / No Match and every chart keep
+ counting the pipeline's result, by the user's decision, so
+ the demo figures stay the system's and human and machine
+ answers can be compared.
+
+ API: PUT /api/detections/{track_pk}/correction
+ {number?, vehicle_type?, corrected_by?, note?};
+ DELETE ... /correction (undo); GET /api/corrections?video_id=
+ (summary and current corrections). GET /api/detections/
+ {track_pk} carries correction and corrections. The Detection
+ History export gains corrected_number, corrected_type,
+ corrected_by and corrected_at: a labels/<video>_truth.csv for
+ "HOW TO MEASURE REAL ACCURACY" can start from it, with the
+ corrected columns as true_number and true_type.
+
  HOW THE WORKER IS BUILT (worker/service.py, Phase 9)
 
  The processing_jobs table is the queue; nothing else passes
@@ -611,7 +651,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
    videos ──< processing_jobs ──< vehicle_tracks ──< plate_observations
                                        │
-                                       └──1 recognition_events
+                                       ├──1 recognition_events
+                                       └──< plate_corrections
    demo_registry   fictional; matched to recognition_events
                    by registration number, nothing else
    app_settings    key → value (JSONB)
@@ -644,6 +685,10 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    demo_registry       FICTIONAL: number, owner, vehicle,
                        type, colour, registering office,
                        valid until, note
+   plate_corrections   an operator's correction of a track's
+                       number and/or type, with the system's
+                       values at the time, who, when, note;
+                       newest row per track is current
 
  A video processed again gets a new job on the same videos
  row; every figure on the dashboard is measured over each

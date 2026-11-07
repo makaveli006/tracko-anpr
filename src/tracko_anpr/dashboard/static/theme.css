@@ -292,3 +292,7 @@ a { color: var(--accent-green); }
 .q-btn.tk-th-button:hover { color: var(--text-primary) !important; }
 .q-field--dark .q-field__control { background: var(--bg-elevated); }
 .q-item.q-manual-focusable--focused, .q-item--active { color: var(--accent-green) !important; }
+
+/* ---- operator corrections ------------------------------------------------------------------ */
+.tk-corrected { text-decoration: underline dashed var(--accent-amber); text-underline-offset: 3px; cursor: help; }
+.tk-correction-box { background: var(--bg-card-2); border: 1px solid var(--border-color); border-radius: var(--radius-small); padding: 12px 14px; }

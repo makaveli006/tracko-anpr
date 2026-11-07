@@ -11,6 +11,8 @@ from tracko_anpr.db import metrics
 from tracko_anpr.db.metrics import Summary, latest_completed_jobs
 from tracko_anpr.db.models import ProcessingJob, RecognitionEvent, VehicleTrack, Video
 from tracko_anpr.pipeline.validation import CONFIRMED
+from tracko_anpr.services import corrections
+from tracko_anpr.services.corrections import CorrectionSummary
 
 CONFIDENCE_BINS = [(0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 0.95), (0.95, 1.01)]
 
@@ -45,6 +47,8 @@ class Analytics:
     runs: list[ProcessingRun]
     average_detect_track_ms_per_frame: float | None
     average_ocr_ms_per_plate: float | None
+    corrections: CorrectionSummary
+    """Operators' corrections, counted separately; no other figure here includes them."""
 
 
 def analytics(session: Session, video_id: int | None = None) -> Analytics:
@@ -100,4 +104,5 @@ def analytics(session: Session, video_id: int | None = None) -> Analytics:
         runs=runs,
         average_detect_track_ms_per_frame=round(1000 * track_seconds / frames_total, 2) if frames_total else None,
         average_ocr_ms_per_plate=round(1000 * ocr_seconds / plates_total, 1) if plates_total else None,
+        corrections=corrections.summary(session, video_id),
     )

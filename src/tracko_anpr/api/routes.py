@@ -20,7 +20,17 @@ from tracko_anpr.api.app import EngineDep, SessionDep, SettingsDep
 from tracko_anpr.config import Settings
 from tracko_anpr.db import metrics
 from tracko_anpr.db.models import Video
-from tracko_anpr.services import analytics, app_settings, files, jobs, readiness, registry, results, videos
+from tracko_anpr.services import (
+    analytics,
+    app_settings,
+    corrections,
+    files,
+    jobs,
+    readiness,
+    registry,
+    results,
+    videos,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -243,6 +253,44 @@ def detection_detail(track_pk: int, session: Annotated[Session, SessionDep]):
     if found is None:
         raise _not_found(f"No detection with id {track_pk}.")
     return found
+
+
+@router.put("/detections/{track_pk}/correction", response_model=results.DetectionDetail)
+def correct_detection(
+    track_pk: int,
+    session: Annotated[Session, SessionDep],
+    number: Annotated[str | None, Body(embed=True)] = None,
+    vehicle_type: Annotated[str | None, Body(embed=True)] = None,
+    corrected_by: Annotated[str, Body(embed=True)] = "",
+    note: Annotated[str, Body(embed=True)] = "",
+):
+    """Record an operator's correction of the number and/or type. The system's result is kept beside it."""
+    try:
+        corrections.save_correction(session, track_pk, number, vehicle_type, corrected_by, note)
+    except corrections.CorrectionError as error:
+        if "not in the database" in str(error):
+            raise _not_found(str(error)) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return results.detection_detail(session, track_pk)
+
+
+@router.delete("/detections/{track_pk}/correction", response_model=results.DetectionDetail)
+def undo_correction(track_pk: int, session: Annotated[Session, SessionDep]):
+    """Remove the newest correction of a detection."""
+    if results.detection_detail(session, track_pk) is None:
+        raise _not_found(f"No detection with id {track_pk}.")
+    if not corrections.undo_latest(session, track_pk):
+        raise HTTPException(status_code=400, detail="This detection has no correction to undo.")
+    return results.detection_detail(session, track_pk)
+
+
+@router.get("/corrections")
+def list_corrections(session: Annotated[Session, SessionDep], video_id: int | None = None):
+    """Operators' current corrections over the latest runs, with the summary. The other figures ignore them."""
+    return {
+        "summary": corrections.summary(session, video_id),
+        "corrections": corrections.list_corrections(session, video_id),
+    }
 
 
 @router.get("/images/{relative_path:path}")

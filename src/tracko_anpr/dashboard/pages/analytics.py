@@ -97,6 +97,8 @@ class AnalyticsPage:
                 self.confidence()
         with ui.element("div").classes("tk-card w-full"):
             self.processing()
+        with ui.element("div").classes("tk-card w-full"):
+            self.corrections_card()
 
     def categories(self) -> None:
         ui.label("Vehicle Category Distribution").classes("tk-card-title")
@@ -256,6 +258,38 @@ class AnalyticsPage:
             "Confidence of confirmed numbers (average of the agreeing readings). Confidence is the reader's own "
             "score, not a measure of accuracy."
         ).classes("tk-muted text-xs")
+
+    def corrections_card(self) -> None:
+        c = self.data.corrections
+        with ui.row().classes("w-full items-center justify-between no-wrap"):
+            ui.label("Operator Corrections").classes("tk-card-title")
+            ui.label("Corrections do not change the figures above; they are kept for evaluation.").classes(
+                "tk-secondary text-sm"
+            )
+        if c.tracks_corrected == 0:
+            ui.label('No corrections made yet. Open a detection and use "Correct this detection".').classes(
+                "tk-muted mt-2"
+            )
+            return
+        share = (
+            f" ({percent(c.confirmed_numbers_changed / c.confirmed_total)} of confirmed numbers)"
+            if c.confirmed_total
+            else ""
+        )
+        with ui.element("div").classes("tk-kv mt-2"):
+            for key, value in (
+                ("Detections corrected", thousands(c.tracks_corrected)),
+                ("Numbers corrected", thousands(c.numbers_corrected)),
+                ("Confirmed numbers changed", f"{thousands(c.confirmed_numbers_changed)}{share}"),
+                ("Vehicle types corrected", thousands(c.types_corrected)),
+                ("Corrections made in all", f"{thousands(c.corrections)} (history included)"),
+            ):
+                ui.label(key).classes("k")
+                ui.label(value).classes("v")
+        ui.label(
+            "Each correction keeps the system's answer beside it. Export Detection History to get both columns "
+            "for the accuracy procedure in ARCHITECTURE.md."
+        ).classes("tk-muted text-xs mt-1")
 
     def processing(self) -> None:
         data = self.data

@@ -130,7 +130,8 @@ The database layer (`src/tracko_anpr/db/`, Phase 8) is separate from the pipelin
 - `session.py`: `make_engine`, `session_scope`, `check_connection` (raises `DatabaseUnavailable` with a plain message), `current_revision`.
 - `migrations/` is Alembic; `env.py` takes the URL from the project settings, so there is no password in `alembic.ini`. One revision so far (`fc32b7b47ec6`, the seven tables). Autogenerate misses renames and server defaults: read every generated file.
 - A track's `counts_as_vehicle` (countable and not a repeat) is stored, not recomputed; Total Vehicles is a count of that column. A repeat track keeps its `recognition_events` row (its number) but is not counted.
-- Two migrations so far: `fc32b7b47ec6` (the seven tables) and `ba9303988888` (`processing_jobs.attempts`).
+- Three migrations so far: `fc32b7b47ec6` (the seven tables), `ba9303988888` (`processing_jobs.attempts`) and the `plate_corrections` table (2026-11-07).
+- **Operator corrections never change the system's result.** `services/corrections.py` stores a correction (number and/or vehicle type, format-checked with `validation.is_valid_plate`) in `plate_corrections` beside the untouched `recognition_events` row; the newest per track is current, `undo_latest` removes it. `DetectionRow.correction` / `DetectionDetail.correction` carry it to the tables and the dialog, which show the corrected value with an amber pencil and the system's value in the tooltip. `metrics.py` ignores corrections by the user's decision: cards, coverage, registry matching and charts stay the pipeline's figures; Analytics has a separate "Operator Corrections" card. The export CSV carries `corrected_*` columns for the accuracy procedure. The operator's name is kept in the browser's `localStorage` (`tk_operator`), not on the server.
 
 The worker (`src/tracko_anpr/worker/service.py`, Phase 9) is the only thing that runs the pipeline for the application; the web app never does:
 

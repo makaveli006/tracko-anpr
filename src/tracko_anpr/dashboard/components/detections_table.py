@@ -23,6 +23,17 @@ COLUMNS = {
 }
 
 
+def corrected_value(shown: str, original: str, by: str) -> ui.element:
+    """A value an operator corrected: amber pencil, dashed underline, the system's value in the tooltip."""
+    with ui.row().classes("items-center gap-1 no-wrap tk-corrected") as holder:
+        ui.icon("edit").classes("text-sm tk-amber")
+        ui.label(shown)
+        ui.tooltip(
+            f"Corrected from {original}" + (f" by {by}" if by else "") + ". The figures use the system's result."
+        )
+    return holder
+
+
 def detections_table(
     rows: list[DetectionRow],
     columns: tuple[str, ...],
@@ -59,13 +70,23 @@ def detections_table(
                             elif column == "track":
                                 ui.label(f"T{d.track_id}")
                             elif column == "vehicle_type":
+                                shown_type = row.correction.corrected_type if row.correction else None
                                 with ui.row().classes("items-center gap-2 no-wrap"):
-                                    ui.icon(VEHICLE_ICONS.get(d.vehicle_type, "directions_car")).classes(
+                                    ui.icon(VEHICLE_ICONS.get(shown_type or d.vehicle_type, "directions_car")).classes(
                                         "text-lg tk-secondary"
                                     )
-                                    ui.label(d.vehicle_type)
+                                    if shown_type:
+                                        corrected_value(shown_type, d.vehicle_type, row.correction.corrected_by)
+                                    else:
+                                        ui.label(d.vehicle_type)
                             elif column == "registration_number":
-                                ui.label(d.registration_number or "—").classes("font-semibold tk-mono")
+                                shown_number = row.correction.corrected_number if row.correction else None
+                                if shown_number:
+                                    corrected_value(
+                                        shown_number, d.registration_number or "nothing", row.correction.corrected_by
+                                    ).classes("font-semibold tk-mono")
+                                else:
+                                    ui.label(d.registration_number or "—").classes("font-semibold tk-mono")
                             elif column == "confidence":
                                 ui.label(f"{d.confidence:.2f}" if d.status != "not_detected" else "—").classes(
                                     "tk-mono"

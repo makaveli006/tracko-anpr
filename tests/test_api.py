@@ -381,6 +381,50 @@ def test_the_dashboard_pages_and_theme_are_served_from_the_same_process(settings
         assert client.get("/api/system/status").status_code == 200  # the API is still there
 
 
+def test_an_operator_can_correct_a_number_and_type_without_changing_the_figures(client, app, settings):
+    video_id = stored_run(app, settings)
+    before = client.get("/api/summary").json()
+    rows = client.get(f"/api/videos/{video_id}/detections").json()
+    track_pk = next(r["detection"]["track_pk"] for r in rows if r["detection"]["track_id"] == 1)  # KL07AB1234
+
+    bad = client.put(f"/api/detections/{track_pk}/correction", json={"number": "hello"})
+    assert bad.status_code == 400 and "not a valid Indian registration number" in bad.json()["detail"]
+    same = client.put(f"/api/detections/{track_pk}/correction", json={"number": "kl 07 ab 1234"})
+    assert same.status_code == 400 and "already the system's result" in same.json()["detail"]
+    assert client.put("/api/detections/99999/correction", json={"number": "KL07AB1299"}).status_code == 404
+
+    saved = client.put(
+        f"/api/detections/{track_pk}/correction",
+        json={"number": "kl07 ab 1284", "vehicle_type": "Motorcycle", "corrected_by": "Anand", "note": "4 not 3"},
+    )
+    assert saved.status_code == 200, saved.text
+    detail = saved.json()
+    assert detail["detection"]["registration_number"] == "KL07AB1234"  # the system's result is untouched
+    assert detail["correction"]["corrected_number"] == "KL07AB1284"
+    assert detail["correction"]["corrected_type"] == "Motorcycle"
+    assert detail["correction"]["corrected_by"] == "Anand" and detail["correction"]["system_status"] == "confirmed"
+    assert len(detail["corrections"]) == 1
+
+    assert client.get("/api/summary").json() == before  # cards and coverage unchanged
+    row = next(
+        r for r in client.get(f"/api/videos/{video_id}/detections").json() if r["detection"]["track_pk"] == track_pk
+    )
+    assert row["correction"]["corrected_number"] == "KL07AB1284" and row["detection"]["status"] == "confirmed"
+
+    listed = client.get("/api/corrections").json()
+    assert listed["summary"]["tracks_corrected"] == 1 and listed["summary"]["confirmed_numbers_changed"] == 1
+    assert listed["corrections"][0]["track_id"] == 1
+    csv_text = client.get("/api/detections/export.csv").text
+    header, *lines = csv_text.strip().splitlines()
+    assert header.endswith("corrected_number,corrected_type,corrected_by,corrected_at")
+    assert any(",KL07AB1284,Motorcycle,Anand," in line for line in lines)
+
+    undone = client.delete(f"/api/detections/{track_pk}/correction")
+    assert undone.status_code == 200 and undone.json()["correction"] is None
+    assert client.delete(f"/api/detections/{track_pk}/correction").status_code == 400
+    assert client.get("/api/analytics").json()["corrections"]["tracks_corrected"] == 0
+
+
 def test_the_registry_seeder_makes_matches_and_non_matches_and_is_repeatable(app, settings):
     from tracko_anpr.services import registry, registry_seed
 

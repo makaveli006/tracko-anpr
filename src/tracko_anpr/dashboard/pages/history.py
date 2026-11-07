@@ -170,8 +170,14 @@ class HistoryView:
 
     async def row_clicked(self, row: DetectionRow) -> None:
         d = row.detection
+
+        async def reload() -> None:
+            ui.navigate.to(self.url())  # the page is its URL: reloading it redraws the table
+
         await show_detection(
-            d.track_pk, open_in_analysis=f"/analysis?video={d.video_id}&t={max(0.0, d.first_seen_s - 0.5):.2f}"
+            d.track_pk,
+            open_in_analysis=f"/analysis?video={d.video_id}&t={max(0.0, d.first_seen_s - 0.5):.2f}",
+            on_change=reload,
         )
 
 
