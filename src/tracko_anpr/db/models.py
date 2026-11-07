@@ -1,6 +1,7 @@
 """The database tables (ARCHITECTURE.md section 11), as SQLAlchemy models.
 
-Seven tables: the six named in the architecture plus `app_settings` for the Settings page.
+Eight tables: the six named in the architecture, `app_settings` for the Settings page, and
+`plate_corrections` for operators' corrections.
 PostgreSQL stores facts and references only; video files and crop images live under
 `storage/`, and the columns ending in `_path` point at them, relative to the project root.
 
@@ -9,6 +10,7 @@ How the tables relate:
     videos ──< processing_jobs ──< vehicle_tracks ──< plate_observations
                                         │
                                         └──1 recognition_events
+                                        └──< plate_corrections (human corrections, kept beside the system's answer)
     demo_registry (fictional; matched to recognition_events by registration number)
     app_settings  (key → value)
 
@@ -80,6 +82,9 @@ class Video(Base):
     frame_count: Mapped[int] = mapped_column(Integer)
     duration_s: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    plate_check: Mapped[dict | None] = mapped_column(JSONColumn)
+    """The plate-size check (services/videos.py): status pending | running | done | failed, times, worker,
+    error, and the result (pipeline/plate_check.py). The worker serves pending checks before queued jobs."""
 
     jobs: Mapped[list[ProcessingJob]] = relationship(back_populates="video", cascade="all, delete-orphan")
 
@@ -153,12 +158,17 @@ class VehicleTrack(Base):
     counts_as_vehicle: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     """countable and not a repeat: adds one to Total Vehicles."""
     vehicle_crop_path: Mapped[str | None] = mapped_column(Text)
+    approach: Mapped[str | None] = mapped_column(String(10))
+    """'towards' or 'away' (from the camera), from the track's boxes (pipeline/direction.py); NULL: undetermined."""
+    sideways: Mapped[str | None] = mapped_column(String(10))
+    """'left' or 'right' across the picture; NULL when the vehicle hardly moved sideways."""
 
     job: Mapped[ProcessingJob] = relationship(back_populates="tracks")
     observations: Mapped[list[PlateObservation]] = relationship(back_populates="track", cascade="all, delete-orphan")
     recognition: Mapped[RecognitionEvent | None] = relationship(
         back_populates="track", cascade="all, delete-orphan", uselist=False
     )
+    corrections: Mapped[list[PlateCorrection]] = relationship(back_populates="track", cascade="all, delete-orphan")
 
 
 class PlateObservation(Base):
@@ -215,6 +225,36 @@ class RecognitionEvent(Base):
     track: Mapped[VehicleTrack] = relationship(back_populates="recognition")
 
 
+class PlateCorrection(Base):
+    """A human's correction of one detection's number or vehicle type, kept beside the system's answer.
+
+    One row per correction made; the newest row for a track is the current correction. The
+    system's own result in `recognition_events` and `vehicle_tracks` is never changed, so the
+    dashboard's figures stay the pipeline's, and system and human answers can be compared later
+    (ARCHITECTURE.md, "How to measure real accuracy").
+    """
+
+    __tablename__ = "plate_corrections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    track_pk: Mapped[int] = mapped_column(ForeignKey("vehicle_tracks.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("processing_jobs.id", ondelete="CASCADE"), index=True)
+    video_id: Mapped[int] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), index=True)
+    system_number: Mapped[str | None] = mapped_column(String(20))
+    """The number the pipeline had settled on when the correction was made."""
+    system_status: Mapped[str] = mapped_column(String(20))
+    system_type: Mapped[str] = mapped_column(String(20))
+    corrected_number: Mapped[str | None] = mapped_column(String(20))
+    """Normalised and format-checked; None when only the type was corrected."""
+    corrected_type: Mapped[str | None] = mapped_column(String(20))
+    """One of the four classes; None when only the number was corrected."""
+    corrected_by: Mapped[str] = mapped_column(String(100), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    track: Mapped[VehicleTrack] = relationship(back_populates="corrections")
+
+
 class DemoRegistryEntry(Base):
     """A FICTIONAL vehicle registration for the demonstration. No real registry is consulted, ever."""
 
@@ -231,6 +271,11 @@ class DemoRegistryEntry(Base):
     """Fictional registering office, e.g. 'Ernakulam RTO'."""
     valid_until: Mapped[date] = mapped_column(Date)
     note: Mapped[str] = mapped_column(Text, default="")
+    """Provenance, written by the seeder or the import ("Fictional record generated…", "Added from the dashboard…")."""
+    description: Mapped[str | None] = mapped_column(String(200))
+    """An operator's free text ("visitor pass until Friday"); nothing else reads it."""
+    list_name: Mapped[str | None] = mapped_column(String(40))
+    """The named list the record belongs to ("Staff", "Visitors", "Watch"), if any."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

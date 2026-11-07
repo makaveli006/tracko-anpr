@@ -159,9 +159,10 @@ def defaults(settings: Settings) -> list[SettingItem]:
             "Video output",
             "output_resolution",
             "Annotated video resolution",
-            "same as input",
+            "up to 1080p",
             "",
-            "Never resized; frame rate and frame count kept.",
+            "Inputs above 1080p are scaled down for playback; frame rate and frame count kept. "
+            "The original video, crops and results are never resized.",
         ),
         ("Video output", "output_codec", "Annotated video codec", "H.264 MP4", "", "Audio copied from the original."),
         (

@@ -57,6 +57,12 @@ def crop_region(frame: np.ndarray, box: Box, pad_x: float = 0.0, pad_y: float = 
     return Crop(frame[top:bottom, left:right].copy(), left, top, right, bottom)
 
 
+def scale_box(box: Box, scale: float) -> Box:
+    """The box with every coordinate multiplied by `scale`, for a frame resized by that factor."""
+    x1, y1, x2, y2 = box
+    return (x1 * scale, y1 * scale, x2 * scale, y2 * scale)
+
+
 def box_area(box: Box) -> float:
     return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
 

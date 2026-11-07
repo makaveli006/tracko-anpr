@@ -11,7 +11,8 @@ its latest completed job"), either for one video or across all of them:
     Avg. Processing Time  mean wall-clock time of those latest jobs
     Detections Over Time  new vehicles per 10-second bucket of video time, each vehicle
                           counted once where it is first seen, so the buckets add up to
-                          Total Vehicles
+                          Total Vehicles; also split by travel direction (towards the
+                          camera, away from it, undetermined)
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from sqlalchemy import Select, case, func, select
 from sqlalchemy.orm import Session
 
 from tracko_anpr.db.models import COMPLETED, ProcessingJob, RecognitionEvent, VehicleTrack, Video
+from tracko_anpr.pipeline.direction import AWAY, TOWARDS, direction_label, short_direction
 from tracko_anpr.pipeline.tracking import VEHICLE_CLASSES
 from tracko_anpr.pipeline.validation import CONFIRMED, NOT_DETECTED, UNCONFIRMED
 
@@ -130,9 +132,36 @@ def detections_over_time(
         .order_by(bucket)
     ).all()
     counts = {int(index): int(count) for index, count in rows}
+    buckets = _bucket_range(session, video_id, counts, bucket_seconds)
+    return [(index * bucket_seconds, counts.get(index, 0)) for index in buckets]
+
+
+def detections_over_time_by_direction(
+    session: Session, video_id: int, bucket_seconds: int = BUCKET_SECONDS
+) -> list[tuple[int, int, int, int]]:
+    """(bucket start, towards the camera, away from it, undetermined) per bucket; the three add up to
+    `detections_over_time` bucket for bucket."""
+    bucket = func.floor(VehicleTrack.first_seen_s / bucket_seconds)
+    rows = session.execute(
+        select(bucket, VehicleTrack.approach, func.count(VehicleTrack.id))
+        .where(VehicleTrack.job_id.in_(latest_completed_jobs(video_id)), VehicleTrack.counts_as_vehicle)
+        .group_by(bucket, VehicleTrack.approach)
+    ).all()
+    counts: dict[int, list[int]] = {}
+    for index, approach, count in rows:
+        slot = {TOWARDS: 0, AWAY: 1}.get(approach, 2)
+        counts.setdefault(int(index), [0, 0, 0])[slot] += int(count)
+    return [
+        (index * bucket_seconds, *counts.get(index, [0, 0, 0]))
+        for index in _bucket_range(session, video_id, counts, bucket_seconds)
+    ]
+
+
+def _bucket_range(session: Session, video_id: int, counts: dict, bucket_seconds: int) -> range:
+    """Every bucket from the start of the video to its end (or the last with a vehicle), so charts are continuous."""
     duration = session.scalar(select(Video.duration_s).where(Video.id == video_id)) or 0.0
     last_bucket = max([int(duration // bucket_seconds), *counts.keys()]) if counts or duration else -1
-    return [(index * bucket_seconds, counts.get(index, 0)) for index in range(last_bucket + 1)]
+    return range(last_bucket + 1)
 
 
 @dataclass(frozen=True)
@@ -156,6 +185,27 @@ class Detection:
     reason: str
     vehicle_crop_path: str | None
     plate_crop_path: str | None
+    approach: str | None = None
+    """'towards' / 'away' from the camera, from the track's boxes; None when undetermined."""
+    sideways: str | None = None
+    """'left' / 'right' across the picture; None when it hardly moved sideways."""
+
+    @property
+    def direction_label(self) -> str:
+        return direction_label(self.approach, self.sideways)
+
+    @property
+    def direction_short(self) -> str:
+        return short_direction(self.approach, self.sideways)
+
+
+def approach_filter(query: Select, approach: str | None) -> Select:
+    """Restrict a tracks query to one travel direction: 'towards', 'away', or 'none' for undetermined."""
+    if approach == "none":
+        return query.where(VehicleTrack.approach.is_(None))
+    if approach:
+        return query.where(VehicleTrack.approach == approach)
+    return query
 
 
 def detections(
@@ -163,13 +213,15 @@ def detections(
     video_id: int | None = None,
     limit: int | None = None,
     newest_first: bool = True,
+    approach: str | None = None,
 ) -> list[Detection]:
     """Counted vehicles with their plate decision, for the Recent Detections table and Detection History."""
-    query = (
+    query = approach_filter(
         select(VehicleTrack, RecognitionEvent, Video.name)
         .join(RecognitionEvent, RecognitionEvent.track_pk == VehicleTrack.id)
         .join(Video, Video.id == VehicleTrack.video_id)
-        .where(VehicleTrack.job_id.in_(latest_completed_jobs(video_id)), VehicleTrack.counts_as_vehicle)
+        .where(VehicleTrack.job_id.in_(latest_completed_jobs(video_id)), VehicleTrack.counts_as_vehicle),
+        approach,
     )
     order = (VehicleTrack.video_id, VehicleTrack.first_seen_s, VehicleTrack.track_id)
     query = query.order_by(*(column.desc() for column in order) if newest_first else order)
@@ -194,6 +246,8 @@ def detections(
             reason=event.reason,
             vehicle_crop_path=track.vehicle_crop_path,
             plate_crop_path=event.plate_crop_path,
+            approach=track.approach,
+            sideways=track.sideways,
         )
         for track, event, video_name in session.execute(query).all()
     ]

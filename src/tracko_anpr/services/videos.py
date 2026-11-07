@@ -7,7 +7,7 @@ import shutil
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -21,6 +21,9 @@ from tracko_anpr.pipeline.runner import relative_path
 from tracko_anpr.pipeline.video import VideoError, probe_video
 
 MAX_UPLOAD_BYTES = 8 * 1024**3  # 8 GB: larger files are registered with `ingest` instead
+
+CHECK_PENDING, CHECK_RUNNING, CHECK_DONE, CHECK_FAILED = "pending", "running", "done", "failed"
+"""States of a video's plate-size check (`Video.plate_check["status"]`)."""
 
 
 class InvalidVideo(ValueError):
@@ -37,6 +40,23 @@ class JobBrief:
     created_at: datetime
     finished_at: datetime | None
     error: str | None
+
+
+@dataclass(frozen=True)
+class PlateCheckState:
+    """Where a video's plate-size check stands, and its result once done (pipeline/plate_check.py)."""
+
+    status: str
+    requested_at: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    worker_id: str | None
+    error: str | None
+    result: dict | None
+
+    @property
+    def live(self) -> bool:
+        return self.status in (CHECK_PENDING, CHECK_RUNNING)
 
 
 @dataclass(frozen=True)
@@ -57,6 +77,45 @@ class VideoSummary:
     """The newest job of any status: what the Upload page shows."""
     completed_job_id: int | None
     """The job whose results the dashboard shows (the latest completed one), if any."""
+    plate_check: PlateCheckState | None = None
+    """None until a check was asked for (videos registered before the check existed)."""
+
+
+def _moment(value) -> datetime | None:
+    return datetime.fromisoformat(value) if isinstance(value, str) and value else None
+
+
+def _check_state(value: dict | None) -> PlateCheckState | None:
+    if not value:
+        return None
+    return PlateCheckState(
+        status=value.get("status", CHECK_PENDING),
+        requested_at=_moment(value.get("requested_at")),
+        started_at=_moment(value.get("started_at")),
+        finished_at=_moment(value.get("finished_at")),
+        worker_id=value.get("worker_id"),
+        error=value.get("error"),
+        result=value.get("result"),
+    )
+
+
+def set_plate_check(video: Video, **changes) -> dict:
+    """Update the video's check state; a new dict is assigned so the JSON column notices the change."""
+    value = dict(video.plate_check or {})
+    value.update(changes)
+    video.plate_check = value
+    return value
+
+
+def request_plate_check(session: Session, video_id: int) -> VideoSummary | None:
+    """Ask the worker to measure the plates of a video. A check already running is left to finish."""
+    video = session.get(Video, video_id)
+    if video is None:
+        return None
+    if (video.plate_check or {}).get("status") != CHECK_RUNNING:
+        video.plate_check = {"status": CHECK_PENDING, "requested_at": datetime.now(UTC).isoformat()}
+    session.flush()
+    return summarize_video(session, video)
 
 
 def _brief(job: ProcessingJob | None) -> JobBrief | None:
@@ -86,6 +145,7 @@ def summarize_video(session: Session, video: Video) -> VideoSummary:
         created_at=video.created_at,
         latest_job=_brief(latest),
         completed_job_id=completed,
+        plate_check=_check_state(video.plate_check),
     )
 
 
@@ -165,7 +225,7 @@ def adopt_upload(
     shutil.move(part, destination)
     info = probe_video(destination)
     video = register_video(session, info, settings.root, UPLOADED, name=final_name, original_filename=original)
-    return summarize_video(session, video)
+    return request_plate_check(session, video.id)  # every new video gets its plate sizes measured
 
 
 def ingest_file(session: Session, settings: Settings, path: str | Path, name: str | None = None) -> VideoSummary:
@@ -175,7 +235,7 @@ def ingest_file(session: Session, settings: Settings, path: str | Path, name: st
     except VideoError as error:
         raise InvalidVideo(str(error)) from error
     video = register_video(session, info, settings.root, INGESTED, name=_clean_name(name) if name else None)
-    return summarize_video(session, video)
+    return request_plate_check(session, video.id)
 
 
 def _upload_path(settings: Settings, name: str) -> str:

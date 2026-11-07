@@ -167,6 +167,31 @@ def read_selected_frames(path: str | Path, frame_numbers: set[int]) -> Iterator[
         capture.release()
 
 
+def read_frames_at(path: str | Path, frame_numbers: list[int] | set[int]) -> Iterator[tuple[int, np.ndarray]]:
+    """Yield the wanted frames by seeking to each, as (frame number, BGR image), in ascending order.
+
+    For a handful of frames spread over a long video this is far cheaper than `read_selected_frames`,
+    which decodes everything from the start. Numbers outside the video are skipped.
+    """
+    wanted = sorted({int(number) for number in frame_numbers if number >= 0})
+    if not wanted:
+        return
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise VideoError(f"OpenCV could not open {path}.")
+    try:
+        total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        for number in wanted:
+            if total > 0 and number >= total:
+                break
+            capture.set(cv2.CAP_PROP_POS_FRAMES, number)
+            ok, frame = capture.read()
+            if ok:
+                yield number, frame
+    finally:
+        capture.release()
+
+
 class FFmpegWriter:
     """Encode BGR frames to an H.264 MP4 by piping them into FFmpeg.
 

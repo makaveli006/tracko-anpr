@@ -60,7 +60,7 @@ def test_a_run_is_stored_as_a_video_a_job_and_rows_per_track_plate_and_decision(
         assert job.settings == {"vehicle_image_size": 1536}
         assert session.scalar(select(func.count()).select_from(Video)) == 1
         assert session.scalar(select(func.count()).select_from(VehicleTrack)) == 7
-        assert session.scalar(select(func.count()).select_from(PlateObservation)) == 2
+        assert session.scalar(select(func.count()).select_from(PlateObservation)) == 4
         # one per countable track, the repeat (T6) included: it keeps its number, it is just not counted again
         assert session.scalar(select(func.count()).select_from(RecognitionEvent)) == 5
 
@@ -204,6 +204,35 @@ def test_detections_over_time_counts_each_vehicle_once_where_first_seen_and_adds
     assert counts[20] == 1  # T3 at 23.3 s
     assert counts[110] == 1  # T7 at 110 s; T6 at 50 s is a repeat and is not counted
     assert sum(counts.values()) == metrics.summary(session).total_vehicles == 4
+
+
+def test_detections_over_time_by_direction_adds_up_bucket_for_bucket(factory):
+    with session_scope(factory) as session:
+        job = store(session, a_result())
+        totals = dict(metrics.detections_over_time(session, job.video_id))
+        split = metrics.detections_over_time_by_direction(session, job.video_id)
+    assert [start for start, *_ in split] == list(range(0, 130, 10))
+    assert all(towards + away + other == totals[start] for start, towards, away, other in split)
+    by_start = {start: (towards, away, other) for start, towards, away, other in split}
+    assert by_start[0] == (1, 0, 0)  # T1 towards
+    assert by_start[10] == (0, 1, 0)  # T2 away
+    assert by_start[20] == (0, 0, 1)  # T3 undetermined
+    assert by_start[110] == (1, 0, 0)  # T7 towards (and left)
+
+
+def test_detections_can_be_filtered_by_travel_direction(factory):
+    with session_scope(factory) as session:
+        store(session, a_result())
+        assert [r.track_id for r in metrics.detections(session, approach="towards")] == [7, 1]
+        assert [r.track_id for r in metrics.detections(session, approach="away")] == [2]
+        assert [r.track_id for r in metrics.detections(session, approach="none")] == [3]
+        rows = {r.track_id: r for r in metrics.detections(session)}
+        assert (rows[7].approach, rows[7].sideways, rows[7].direction_label) == (
+            "towards",
+            "left",
+            "Towards camera, left",
+        )
+        assert rows[3].direction_label == "Undetermined" and rows[3].direction_short == "—"
 
 
 def test_detections_table_rows_newest_first_with_plate_and_crops(factory):

@@ -15,12 +15,59 @@ COLUMNS = {
     "video": "Video",
     "track": "Track ID",
     "vehicle_type": "Vehicle",
+    "direction": "Direction",
     "registration_number": "Registration Number",
     "confidence": "Confidence",
     "status": "Validation",
     "registry": "Demo Registry",
     "plate": "Plate Image",
 }
+
+
+def corrected_value(shown: str, original: str, by: str) -> ui.element:
+    """A value an operator corrected: amber pencil, dashed underline, the system's value in the tooltip."""
+    with ui.row().classes("items-center gap-1 no-wrap tk-corrected") as holder:
+        ui.icon("edit").classes("text-sm tk-amber")
+        ui.label(shown)
+        ui.tooltip(
+            f"Corrected from {original}" + (f" by {by}" if by else "") + ". The figures use the system's result."
+        )
+    return holder
+
+
+DIRECTION_ICONS = {"towards": "arrow_downward", "away": "arrow_upward"}
+"""Towards the camera is down the picture, away from it is up; sideways-only travel gets a horizontal arrow."""
+
+
+def direction_cell(approach: str | None, sideways: str | None, text: str) -> None:
+    """The travel direction as a small arrow and the short words; a muted dash when undetermined."""
+    if approach is None and sideways is None:
+        ui.label("—").classes("tk-muted")
+        return
+    icon = DIRECTION_ICONS.get(approach or "", "arrow_back" if sideways == "left" else "arrow_forward")
+    with ui.row().classes("items-center gap-1 no-wrap"):
+        ui.icon(icon).classes("text-base tk-green")
+        ui.label(text)
+        ui.tooltip("Worked out from how the vehicle's box grew, shrank or moved across the picture.")
+
+
+def registry_cell(match, status: str) -> None:
+    """Match (green), Possible match (amber, one character away, never asserted), No match, or nothing."""
+    if match is not None and match.exact:
+        in_list = f" · {match.record.list_name}" if match.record.list_name else ""
+        ui.label(f"Match{in_list}").classes("tk-green font-medium")
+    elif match is not None:
+        with ui.row().classes("items-center gap-1 no-wrap tk-amber"):
+            ui.icon("help_outline").classes("text-base")
+            ui.label("Possible match").classes("font-medium")
+            ui.tooltip(
+                f"The registry has {match.record.registration_number}, one character away ({match.difference}). "
+                "Not asserted: the recognised number is shown as read."
+            )
+    elif status == "confirmed":
+        ui.label("No match").classes("tk-secondary")
+    else:
+        ui.label("—").classes("tk-muted")
 
 
 def detections_table(
@@ -59,13 +106,25 @@ def detections_table(
                             elif column == "track":
                                 ui.label(f"T{d.track_id}")
                             elif column == "vehicle_type":
+                                shown_type = row.correction.corrected_type if row.correction else None
                                 with ui.row().classes("items-center gap-2 no-wrap"):
-                                    ui.icon(VEHICLE_ICONS.get(d.vehicle_type, "directions_car")).classes(
+                                    ui.icon(VEHICLE_ICONS.get(shown_type or d.vehicle_type, "directions_car")).classes(
                                         "text-lg tk-secondary"
                                     )
-                                    ui.label(d.vehicle_type)
+                                    if shown_type:
+                                        corrected_value(shown_type, d.vehicle_type, row.correction.corrected_by)
+                                    else:
+                                        ui.label(d.vehicle_type)
+                            elif column == "direction":
+                                direction_cell(d.approach, d.sideways, d.direction_short)
                             elif column == "registration_number":
-                                ui.label(d.registration_number or "—").classes("font-semibold tk-mono")
+                                shown_number = row.correction.corrected_number if row.correction else None
+                                if shown_number:
+                                    corrected_value(
+                                        shown_number, d.registration_number or "nothing", row.correction.corrected_by
+                                    ).classes("font-semibold tk-mono")
+                                else:
+                                    ui.label(d.registration_number or "—").classes("font-semibold tk-mono")
                             elif column == "confidence":
                                 ui.label(f"{d.confidence:.2f}" if d.status != "not_detected" else "—").classes(
                                     "tk-mono"
@@ -73,12 +132,7 @@ def detections_table(
                             elif column == "status":
                                 status_badge(d.status)
                             elif column == "registry":
-                                if row.registry_match is not None:
-                                    ui.label("Match").classes("tk-green font-medium")
-                                elif d.status == "confirmed":
-                                    ui.label("No match").classes("tk-secondary")
-                                else:
-                                    ui.label("—").classes("tk-muted")
+                                registry_cell(row.registry_match, d.status)
                             elif column == "plate":
                                 if image_url(d.plate_crop_path):
                                     ui.image(image_url(d.plate_crop_path)).classes("tk-plate-thumb")

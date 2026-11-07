@@ -110,6 +110,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    POST /api/videos
    GET  /api/videos
    POST /api/videos/{id}/process
+   POST /api/videos/{id}/plate-check
    GET  /api/jobs/{id}
    GET  /api/videos/{id}/results
    GET  /api/videos/{id}/detections
@@ -151,18 +152,31 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    GET  /api/analytics          Analytics across all videos
    GET  /api/detections         Detection History: every
                                 video, filtered by video,
-                                status, type, number search;
-                                sorted; paged
+                                status, type, travel direction
+                                (approach = towards | away |
+                                none), number search; sorted;
+                                paged
    GET  /api/detections/export.csv     the same rows as CSV
    GET  /api/detections/{track_pk}     one detection in full,
                                 with every plate observation
-                                (the multi-frame evidence) and
-                                its fictional registry match
+                                (the multi-frame evidence), its
+                                event lifecycle (new / read /
+                                confirmed / corrected / lost)
+                                and its fictional registry match
    GET  /api/images/{path}      vehicle and plate crops, only
                                 from storage/vehicle_crops and
                                 storage/plate_crops
    GET  /api/registry[/{number}]  the FICTIONAL registry, with
-                                its disclaimer in every answer
+                                its disclaimer in every answer;
+                                a record one character away is
+                                a "possible" match, never a match
+   GET  /api/registry/lists     the named lists and their counts
+   POST /api/registry/lists     add a number to a list (a
+                                fictional record if none exists)
+   PUT  /api/registry/{id}      description and list of a record
+   DELETE /api/registry/{id}/list   take a record out of its list
+   POST /api/registry/import    CSV import; the template is at
+                                GET /api/registry/import-template.csv
    GET/PUT /api/settings        the Settings page's values
    GET  /api/jobs               the queue
 
@@ -189,6 +203,388 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  ready with all six checks green, a Range request on a 106 MB
  annotated video answered 206 with the right Content-Range,
  and a .mov upload was refused with its message.
+
+ MANUAL NUMBER PLATE CORRECTION (services/corrections.py,
+ added 2026-11-07)
+
+ An operator can correct a recognised number and/or the
+ vehicle type from the details dialog (any detections table:
+ Overview, Video Analysis, Detection History). The system's
+ own result is never changed: the correction is stored
+ beside it in plate_corrections, with the system's number,
+ status and type at the time, an optional name (remembered in
+ the browser) and note. The newest correction per track is
+ the current one; earlier ones stay as history and "Undo"
+ removes the newest.
+
+ Rules (the service enforces them, the API answers 400 with
+ the reason): the number is normalised and must pass the
+ pipeline's own Indian-format check (is_valid_plate); the type
+ must be one of the four classes; a correction that equals the
+ system's result is refused.
+
+ Where it shows: the corrected value in the table cell with an
+ amber pencil and a dashed underline, the system's value in
+ the tooltip; both values in the dialog; an "Operator
+ Corrections" card on Analytics (detections corrected,
+ numbers, confirmed numbers changed and their share, types).
+ Nothing else moves: Total Vehicles, Recognized Plates,
+ coverage, the registry Match / No Match and every chart keep
+ counting the pipeline's result, by the user's decision, so
+ the demo figures stay the system's and human and machine
+ answers can be compared.
+
+ API: PUT /api/detections/{track_pk}/correction
+ {number?, vehicle_type?, corrected_by?, note?};
+ DELETE ... /correction (undo); GET /api/corrections?video_id=
+ (summary and current corrections). GET /api/detections/
+ {track_pk} carries correction and corrections. The Detection
+ History export gains corrected_number, corrected_type,
+ corrected_by and corrected_at: a labels/<video>_truth.csv for
+ "HOW TO MEASURE REAL ACCURACY" can start from it, with the
+ corrected columns as true_number and true_type.
+
+ FEATURES INSPIRED FROM AXIS COMMUNICATIONS
+
+ On 2026-11-07 two Axis Communications documents were read
+ against this project: the AXIS License Plate Verifier
+ technical documentation (February 2026; an on-camera LPR
+ application with lists, events and integrations) and the
+ whitepaper "License plate capture — key factors for
+ successful license plate recognition" (December 2024; the
+ physics of getting readable plates). Everything that
+ presupposes a live camera (barriers, I/O, PTZ, IR and
+ shutter settings) is out of scope by the spec. What carries
+ over, in the order worth doing:
+
+ 1. RECORDING GUIDE — done 2026-11-07.
+    RECORDING_GUIDE.md at the project root, for anyone
+    filming with a phone or a fixed camera: plate at least
+    130 px wide when closest (two-row plates 70 px per row),
+    camera in line with the traffic within 30°, level within
+    5°, height about half the reading distance, above
+    headlights, not into the sun; landscape 1080p at 30 fps
+    (4K adds nothing and costs two and a half times the
+    processing),
+    focus and exposure locked, fast shutter, phone still,
+    1 to 3 minute clips; night only with light at the camera
+    (plates are retro-reflective); a plate-width self-check
+    before uploading (130 px is about 7% of a 1080p frame);
+    and our own measured read rates by plate width on the
+    three demo videos, which agree with Axis's numbers
+    (1080p: 60 to 100 px read 66% of the time; 4K: under
+    150 px rarely; zoomed-in, filmed closest, has the best
+    coverage at the lowest resolution). The Upload page shows
+    the guide's first three sections under "Recording tips
+    for better results", rendered from the same file. Zero
+    pipeline change; it is the largest lever on coverage.
+
+ 2. PLATE-SIZE CHECK ON UPLOAD — done 2026-11-07.
+    Before the full run, which takes minutes, the worker
+    samples 24 frames spread evenly over the video (the first
+    and last 5% left out), finds the vehicles in them with
+    YOLO26m (detection only, no tracking: VehicleTracker.
+    detect) and the plates on those vehicles with sentry-26s,
+    exactly as stage 4 would, and reports the plate widths
+    (pipeline/plate_check.py): the median, the 90th
+    percentile as "the largest plates seen", the shares under
+    60 px and at or over 130 px, and a verdict with one
+    sentence for the user. The verdict follows the largest
+    plates, not the median, because a plate is only big when
+    its vehicle is close and that is where the pipeline reads
+    it; the thresholds are the recording guide's (130 px →
+    good, 60 to 130 → borderline, under 60 → low; no plates
+    found on the vehicles seen, or no vehicles, are their own
+    verdicts). It measures size only: blur, angle and light
+    are not checked, and nothing it finds is stored as a
+    result. Mirrors Axis's pixel counter.
+    Where it runs: never in the web process. videos.plate_
+    check (migration e5a1c9d2b7f3) holds the state (pending |
+    running | done | failed, times, worker, error) and the
+    result; every upload and ingest requests a check; the
+    worker serves a pending check before the next queued job
+    (half a minute against minutes, and someone is waiting on
+    the Upload page), keeps the two detectors loaded between
+    checks, and on start queues again any check a dead worker
+    left running. A check is not a processing_jobs row, so
+    the job recovery that deletes result folders never
+    touches it. POST /api/videos/{id}/plate-check asks for
+    one (202; the state travels in VideoSummary.plate_check);
+    tracko-anpr check <video> [--frames 24] runs it from the
+    command line. The Upload page's File Information card
+    shows a spinner while it runs, then the sentence in green
+    / amber / red with "Check again"; the videos list has a
+    "Plate size" column; videos registered before the check
+    existed read "Not checked · Check now".
+    Measured on zoomed-in: 60 vehicles and 41 plates in 24
+    frames in 28 s on the command line (42 s from the click
+    on the Upload page, the worker's model load included),
+    median 44 px, largest 107 px, verdict "borderline: some
+    will be read", which matches its 27% coverage.
+
+ 3. DIRECTION PER TRACK AND NEW / UPDATE / LOST EVENTS —
+    done 2026-11-07.
+    Direction. pipeline/direction.py reads each track's
+    travel direction from the boxes the tracker already
+    produced, with no model: the median box height of the
+    first fifth of the track against the last fifth (ratio
+    at least 1.25 → "towards" the camera, at most 1/1.25 →
+    "away"), and the median box centre's shift as a share of
+    the frame width (at least 10% → "right" or "left"). Both
+    parts may be set ("Towards camera, left"); neither →
+    "Undetermined" (a vehicle that hardly moved, or a track
+    too short to compare). Medians, because the first and
+    last boxes of a track are the noisiest. Ratios and
+    fractions only, so nothing depends on resolution or
+    frame rate. The two thresholds (DirectionRules) are NOT
+    part of the Phase 7 frozen set: changing them changes
+    labels, never a count or a plate; they are recorded in
+    results.json's settings. The user chose the wording
+    "Towards / Away from camera" over Axis's Entry / Exit
+    because the demo cameras are roadside phones, not gate
+    cameras. Stored on vehicle_tracks as approach and
+    sideways (migration d41ec7a0b3f2; the column is called
+    sideways because "lateral" is a reserved word in
+    PostgreSQL). Shown: a Direction column in every
+    detections table, a Direction filter on Detection
+    History (URL parameter dir, API parameter approach =
+    towards | away | none), a "direction" column in the CSV
+    export, and Detections Over Time on the Overview as
+    stacked bars (towards, away, undetermined per 10-second
+    bucket; metrics.detections_over_time_by_direction, which
+    adds up bucket for bucket to detections_over_time).
+    Limits: direction is relative to the picture, so a
+    vehicle crossing the frame is only "left" or "right"; a
+    stopped vehicle is "Undetermined"; the two demo videos
+    were processed again to carry it (results otherwise
+    identical), and the upload 214173 keeps NULLs, shown as
+    "Undetermined". Measured on the demo set: zoomed-in has
+    22 of 59 counted vehicles undetermined, clear 86 of 185.
+    Those 86 are not a threshold problem: their median
+    height ratio is 0.99 with no sideways shift, their
+    median track lasts 1.4 s, 72 are motorcycles and 67 are
+    unconfirmed, i.e. mostly short fragments of tracks and
+    two-wheelers waiting at the roadside; lowering the
+    ratio to 1.15 would relabel only 12 of them. Expect the
+    undetermined share to fall with longer tracks, not with
+    looser thresholds.
+    Events. The details dialog has an "Events" list, the
+    Verifier's New / Update / Lost lifecycle reconstructed
+    at read time by services/results.py:lifecycle from rows
+    that already exist (nothing is logged while a video is
+    processed): "new" at the first frame; "read" at the first
+    reading above the validator's 0.6 confidence floor and
+    again at every later reading with a different text (the
+    "updates"); "confirmed" at the observation where the
+    agreeing readings of the final number (as written or
+    after look-alike correction) reach the validator's
+    minimum of 2 with one of them at 0.85 or more, for
+    confirmed tracks only; "lost" at the last frame with the
+    direction; and "corrected" for each operator correction,
+    the one kind with a wall-clock time rather than a video
+    time. Clicking an event with a video time opens Video
+    Analysis at that moment. The events are in the API's
+    DetectionDetail (field "events").
+
+ 4. NEAR-MATCH FLAGGING IN THE REGISTRY — done 2026-11-07.
+    Axis matches with one character of tolerance by default
+    and documents that it lets look-alikes through. Here a
+    registry record one edit away from a confirmed number
+    (Levenshtein distance 1: one substitution, insertion or
+    deletion; validation.edit_distance) is a "Possible
+    match": amber, with the record and the differing
+    character named in words ("3 read where the record has
+    8", validation.describe_difference), and never counted
+    or shown as a Match. Only confirmed numbers are looked
+    up (the user's decision); the recognised number itself
+    is never changed. services/registry.py returns a
+    RegistryMatch (record, exact, distance, difference,
+    others: how many more records are also one away); when
+    several records are one away a substitution is preferred
+    over a dropped or extra character, then the lowest
+    number. Lookups normalise case and spaces. Shown in every
+    detections table (amber "Possible match" with a tooltip),
+    the details dialog ("Possible match · number · record"
+    plus the difference), the Demo Registry page (counts
+    "n match · m possible · k no match", the table, and the
+    search answer in an amber banner) and the API
+    (GET /api/registry/{number} answers match, possible,
+    distance, difference and record, with response models;
+    registry_match in the detection endpoints carries the
+    record under "record"). The CSV export has
+    demo_registry_possible (the near record's number) beside
+    demo_registry_match (owner, exact matches only). The
+    seeder adds near-miss records one look-alike character
+    from a share of the confirmed numbers that have no record
+    (seed-registry --near 0.25; deterministic; the note names
+    the source number so a re-run adds nothing), so the state
+    is visible in the demo: on 2026-11-07 it added 3 (and 4
+    exact records, because the confirmed set changed when
+    rope was dropped); the registry holds 29 records, and the
+    Demo Registry page shows 21 match · 3 possible · 22 no
+    match. No pipeline change, no reprocessing.
+
+ 5. HISTORY AND REGISTRY CONVENIENCES — done 2026-11-07.
+    "Copy link" on Detection History and on a Demo Registry
+    search puts the address of the exact view (every filter,
+    sort and page is a URL parameter) on the clipboard.
+    Registry records can belong to a named list ("Staff",
+    "Visitors", "Watch") and carry an operator's description:
+    demo_registry.list_name and .description (migration
+    f7b3d9c4e1a2); `note` remains the provenance ("Added from
+    the dashboard by … on …; fictional", "Imported from
+    list.csv by …"), which the seeder also reads for its
+    near-miss records. From the Demo Registry page a
+    recognised number is added to a list (the search answer's
+    "Add to a list", the recognised-numbers table's "Add to
+    list"), which creates a fictional placeholder record for
+    it when none exists (owner "(added from the dashboard)",
+    valid a year); records are edited (list, description) or
+    removed from their list, never deleted from the page; a
+    CSV is imported with the columns of
+    GET /api/registry/import-template.csv (only the number is
+    required; an existing number is updated for the fields
+    given; an invalid number or date skips the row with the
+    line and the reason; an unknown vehicle type becomes
+    Car). The page filters by list (URL parameter list) and
+    shows List and Description columns; a Match in any
+    detections table reads "Match · Staff" and the details
+    dialog shows the list and the description. API:
+    GET /api/registry/lists, GET /api/registry/import-
+    template.csv, POST /api/registry/import (multipart),
+    POST /api/registry/lists, PUT /api/registry/{id},
+    DELETE /api/registry/{id}/list, GET /api/registry?list=.
+    The dialog is components/registry_dialog.py (anchored to
+    the page content, the operator's name from the browser as
+    the corrections do). Everything added is fictional and
+    says so. No pipeline change, no reprocessing.
+
+ 6. Outbound integration (future). An HTTP POST webhook per
+    confirmed plate with the same JSON shape as the API's
+    detection (plate, confidence, direction, time, video,
+    crop URLs), a "Test with a virtual plate" button, and a
+    buffer that stores events while the receiver is down and
+    replays them, as Axis's push events do. Turns the POC
+    into a component.
+
+ 7. Configuration after the freeze (future). The knobs Axis
+    exposes that we keep fixed: confidence threshold (lower
+    for low light), minimum number of characters, area of
+    interest, retention period and capture type. Any of them
+    changes results, so they wait until the demo and are
+    judged with the accuracy procedure.
+
+ FASTER VIDEO PROCESSING (item 4 of the future work)
+
+ "Optimize the video processing pipeline to reduce
+ processing time, especially for 4K videos. Explore batch
+ inference, parallel processing, and faster video encoding."
+ Taken in steps, cheapest first; each step is measured on
+ the three demo videos and must leave every result
+ identical. The settings frozen in Phase 7 are untouched.
+
+ Where the time went before any change (clear.mp4, 4K at
+ 60 FPS, 2 min 25 s, 8,688 frames; the Phase 14 run,
+ 979 s in all):
+   detection and tracking      536 s   55%
+   plate detection and OCR      64 s    7%
+   render pass                 379 s   39%
+     second decode of the 4K     32 s
+     plate detector run again   217 s   (to find the box
+                                         to outline, in
+                                         every frame)
+     encoding 3840x2160         126 s
+ The render pass was doing work that was already done
+ (the plate boxes exist from stage 4) and encoding a size
+ the browser never shows (the dashboard plays the video in
+ a 1,000 px wide player).
+
+ STEP 1 — RENDER PASS (done 2026-11-07)
+   • The outlines come from the stage-4 plate sightings:
+     annotate.plate_boxes_by_frame keeps each plate's
+     position relative to its vehicle box, interpolates it
+     between the examined frames and holds it outside
+     them. The plate detector no longer runs in stage 7.
+     Known limit: while a vehicle is partly hidden its box
+     shrinks and the outline drifts by a few pixels (seen
+     on rope: a truck passing behind a tree). A frame the
+     tracker skipped gets no box, as before.
+   • Inputs taller than 1080p are scaled down to 1080p for
+     the annotated copy (PipelineOptions.annotated_max_
+     height, default 1080; cv2.INTER_AREA before drawing;
+     boxes scaled with the frame; width kept even). The
+     original video, the crops and every result stay at
+     full resolution. results.json records the copy's size
+     under "annotated_video".
+   • Measured by reprocessing the demo set through the
+     worker (the earlier figures are the Phase 14 runs):
+
+     Video      Format    Before   After   Render pass    Annotated file
+     ─────────────────────────────────────────────────────────────────────
+     clear      4K 60     979 s    667 s   379 s → 157 s  770 MB → 214 MB
+     rope       4K 30     194 s    145 s    82 s →  33 s  288 MB →  90 MB
+     zoomed-in  1080p 30  213 s    208 s    67 s →  43 s  111 MB → 107 MB
+
+     clear now runs at 4.6 times its length (was 6.8),
+     rope at 2.5, zoomed-in at 1.9. Detection and tracking
+     varies by about 20% between runs of the same video,
+     so the whole-run figures carry that noise; the render
+     pass figures do not. On clear the render pass is now
+     42 s decoding, 24 s scaling and drawing, 91 s
+     encoding 1920x1080.
+   • Results: every vehicle record, summary and plate
+     count identical to the earlier runs (rope's
+     timestamps moved by 1 ms because its file had been
+     re-muxed without audio in between, which changed the
+     reported frame rate in the fourth decimal).
+   • Tests: plate_boxes_by_frame (interpolation, holding,
+     the small-vehicle rule, tracks never seen),
+     output_size, and rendering a tiny video at a smaller
+     height with its boxes (tests/test_pipeline_logic.py).
+
+ WHERE THE TIME GOES NOW (clear.mp4, 667 s)
+   detection and tracking      472 s   71%   (4K decoding
+                                              is CPU-bound)
+   plate detection and OCR      38 s    6%
+   render pass                 157 s   24%
+
+ STEP 2 — DECODE ONCE, AND DECODE ON THE GPU (future)
+   The 4K file is decoded twice (tracking pass and render
+   pass), both by FFmpeg/OpenCV on the CPU at 5 to 10
+   frames/s for 4K against 30 to 50 at 1080p, which is
+   why detection and tracking is 71% of the run while the
+   GPU waits. Two options, in order:
+   • Hardware decoding (FFmpeg -hwaccel cuda / NVDEC)
+     for both passes. The card has an NVDEC engine; the
+     apt FFmpeg 6.1.1 in WSL needs checking for nvdec
+     support (WSL passes the GPU through for CUDA; video
+     engines are a separate question). Potentially the
+     largest remaining lever for 4K.
+   • Keep a 1080p copy of each frame from the first pass
+     (on disk, ~6 MB per frame uncompressed, or as a fast
+     intra-only video) and render from that, removing the
+     second decode (42 s on clear).
+   Rendering inside the tracking pass is not an option:
+   labels show the settled class and the validated number,
+   which are known only after the whole track is seen.
+
+ STEP 3 — BATCH INFERENCE AND FASTER ENCODING (future)
+   • Decode on a thread and feed YOLO26m batches of frames
+     (Ultralytics tracking takes one frame at a time;
+     batching needs the tracker to be driven per frame
+     from batched detections). Worth doing only once
+     decoding stops being the bottleneck.
+   • Encode the annotated copy with NVENC (h264_nvenc)
+     instead of libx264: the 91 s of 1080p encoding on
+     clear would fall to roughly 15 s. Needs an FFmpeg
+     build with nvenc in WSL; quality and file size to be
+     checked against the current CRF 20 / preset fast.
+   • Parallel processing across videos is one worker per
+     GPU-sized slice of memory (a run peaks at 3.4 GB of
+     16 GB); the queue already allows several workers, but
+     one 4K run saturates the CPU decoder, so it is not
+     expected to help on this machine and is not planned
+     for the POC.
 
  HOW THE WORKER IS BUILT (worker/service.py, Phase 9)
 
@@ -611,14 +1007,17 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
    videos ──< processing_jobs ──< vehicle_tracks ──< plate_observations
                                        │
-                                       └──1 recognition_events
+                                       ├──1 recognition_events
+                                       └──< plate_corrections
    demo_registry   fictional; matched to recognition_events
                    by registration number, nothing else
    app_settings    key → value (JSONB)
 
    videos              one file: name (its folder under
                        storage/), path, size, width, height,
-                       exact frame rate, frame count, length
+                       exact frame rate, frame count, length,
+                       and plate_check (the plate-size check's
+                       state and result, JSON)
    processing_jobs     one run of the pipeline over one
                        video; also the worker's queue:
                        status (queued, processing, completed,
@@ -631,7 +1030,10 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                        job), type, best confidence, first and
                        last frame and second, countable,
                        camera_car, same_vehicle_as,
-                       counts_as_vehicle, vehicle crop path
+                       counts_as_vehicle, vehicle crop path,
+                       and the travel direction as approach
+                       (towards / away / NULL) and sideways
+                       (left / right / NULL)
    plate_observations  one per plate examined: frame, box,
                        detector confidence, reading, reader
                        confidence, unreadable, second decoder
@@ -643,7 +1045,12 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                        crop path
    demo_registry       FICTIONAL: number, owner, vehicle,
                        type, colour, registering office,
-                       valid until, note
+                       valid until, note (provenance), and an
+                       operator's description and list_name
+   plate_corrections   an operator's correction of a track's
+                       number and/or type, with the system's
+                       values at the time, who, when, note;
+                       newest row per track is current
 
  A video processed again gets a new job on the same videos
  row; every figure on the dashboard is measured over each
@@ -687,7 +1094,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Tools           : OpenCV + FFmpeg
  Output          : H.264 MP4
- Resolution      : Same as the input video
+ Resolution      : Up to 1080p (inputs above 1080p are scaled
+                   down for playback; the original is untouched)
  Playback FPS    : Same as the input video
 
  Annotations:
@@ -707,14 +1115,27 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      shows only what the whole track supports.
    • Vehicle: bright green outline, dark green label with
      white text, e.g. "#T101 Car (0.98)".
-   • Plate: amber outline wherever the plate is found in the
-     frame, with the number just below it. Where the plate
-     is not found in a frame, the number is written inside
-     the bottom of the vehicle's box.
+   • Plate: amber outline at the plate, with the number just
+     below it. The outline comes from the plates found in
+     stage 4 (plate_boxes_by_frame): the plate's position
+     relative to the vehicle box is interpolated between the
+     examined frames and held before the first and after the
+     last, so the plate detector does not run again in this
+     pass (it used to, in every frame, and that was a quarter
+     of a 4K run). While a vehicle is partly hidden its box
+     shrinks and the outline can drift by a few pixels. Where
+     a vehicle is too small to outline (under the 6%-of-frame
+     rule) the number is written inside the bottom of its box.
    • Confirmed: black on amber, "KL10AB1234 (0.97)".
      Unconfirmed: amber on dark, "KL10AB1234 unconfirmed".
-   • Same size, frame rate and frame count as the input;
-     audio copied from the original.
+   • Same frame rate and frame count as the input; audio
+     copied from the original. Inputs taller than 1080p are
+     scaled down to 1080p (PipelineOptions.annotated_max_
+     height; boxes scaled with the frame) because the browser
+     plays them at a fraction of their size anyway and a 4K
+     encode took as long as the tracking; detection, crops
+     and results always use the original frames. results.json
+     records the copy's size under "annotated_video".
 
  Files written for one video (tracko-anpr process):
    storage/processed/<name>/annotated.mp4
@@ -756,6 +1177,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  PAGE 2: Upload & Process
    • Upload videos
    • Video metadata
+   • Plate-size check (are the plates big enough to read?)
    • Start processing
    • Processing progress and errors
 
@@ -769,6 +1191,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • Timestamp
    • Tracking ID
    • Vehicle category
+   • Travel direction (towards / away from the camera,
+     left / right), also a filter
    • Plate image
    • Recognized text
    • Recognition confidence
@@ -906,9 +1330,11 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      and detector confidence, plate width) and the fictional
      registry match or "No match", with the disclaimer.
      "View All" goes to Detection History for that video.
-   • Detections Over Time: ECharts line with a faint green
-     area, new vehicles per 10-second bucket of video time;
-     the buckets add up to Total Vehicles.
+   • Detections Over Time: ECharts stacked bars per
+     10-second bucket of video time, split by travel
+     direction (towards the camera in bright green, away in
+     dark green, undetermined in grey, with a legend); the
+     buckets add up to Total Vehicles.
    • Empty states: with nothing processed, the cards read 0,
      the player, charts and table say so, and the selector
      and scope switch are disabled; nothing is invented.
@@ -993,6 +1419,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  rope          4K 30       0:57    3 min 14 s    12        7         2      28.6%
  clear         4K 60       2:25   15 min 44 s   269      185        30      16.2%
  All three                 5:12   22 min 31 s   366      251        48      19.1%
+ (rope was dropped from the demo set later that day; the
+ set is clear and zoomed-in: 354 tracks, 244 vehicles, 46
+ confirmed, 18.9% coverage.)
 
  By type: Car 75, Motorcycle 143, Bus 2, Truck 31. Plate
  status: 48 confirmed, 175 unconfirmed, 28 with no plate
@@ -1024,6 +1453,30 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  5 seconds after WSL started, the migration was a no-op, and
  15 seconds later /api/system/status said ready on all six
  checks with the demo data in place.
+
+ Cold start, second rehearsal (2026-11-07, after the day's
+ changes: cheaper render pass, travel direction, plate-size
+ check, registry near-match and lists, the rebuilt .venv,
+ three more migrations). Following only the runbook from
+ `wsl --shutdown`: the container was listed 6 s after the
+ first WSL command and healthy 2 s later, alembic upgrade
+ head was a no-op at f7b3d9c4e1a2, the worker logged ready
+ within seconds, /api/system/status said ready as soon as
+ the web app answered, db-status showed 2 videos, 244
+ vehicles, 46 confirmed. All seven pages rendered in
+ headless Chromium with no console errors (System Ready,
+ Direction columns, Events, the 1080p annotated player, the
+ registry's 22 match · 3 possible · 21 no match with the
+ Staff list). A live upload of a 20-second zoomed-in cut:
+ registered in 1 s, plate-size verdict after 50 s (cold
+ worker, "largest plates about 138 px"), processed to
+ Completed 68 s after the click, 11 vehicles; the test video
+ was then removed. scripts/restore.sh of the latest backup
+ (20261107-090212) with the services stopped took 15 s and
+ left every figure and the 30 registry records as they were;
+ the services were ready again 7 s after being started.
+ Nothing tripped; the runbook gained the measured times and
+ a row for the plate-size check.
 
  Offline: with every request to any host other than the app
  blocked, all seven pages rendered with the Inter font, the
@@ -1109,16 +1562,30 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • A different frontend could replace NiceGUI later
      without touching the backend.
 
-   Detect auto-rickshaws and other Indian vehicle types.
-   The POC keeps four classes (car, motorcycle, bus, truck)
-   because the stock YOLO26m model knows only those, so
-   other vehicle types may be missed or mislabelled.
+   Indian vehicle classification. Train the vehicle detection
+   model to recognize auto-rickshaws, scooters, vans and other
+   Indian vehicle categories. This will improve vehicle
+   classification and traffic analytics. The POC keeps four
+   classes (car, motorcycle, bus, truck) because the stock
+   YOLO26m model knows only those, so an auto-rickshaw is
+   today labelled car or motorcycle, a scooter is a
+   motorcycle, and a van a car or truck. How it would be
+   done: collect and label frames from the user's own
+   footage (a few hundred boxes per new class, from several
+   videos and times of day), fine-tune YOLO26m on them with
+   the stock classes kept, measure against a held-out set
+   (same method as "HOW TO MEASURE REAL ACCURACY"), then add
+   the classes to VEHICLE_CLASSES, the donut colours, the
+   icons and the registry seeder. It changes a frozen
+   setting, so every demo video would be processed again,
+   and the YOLO26 AGPL question (below) applies to the
+   trained weights too.
 
    Measure real accuracy. For now the dashboard shows
    recognition coverage and confidence only, labelled as not
-   being accuracy. Later: hand-check the true plate numbers
-   for one or two clips and measure the pipeline against
-   them.
+   being accuracy. The step-by-step procedure is the section
+   "HOW TO MEASURE REAL ACCURACY" near the end of this file;
+   it needs a hand-labelled set, which does not exist yet.
 
    A fallback plate reader. The Awiros model passed its test
    on this project's plates, so it is the only reader for
@@ -1650,7 +2117,10 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  1.8 min) and, at first, three recordings held upright
  (portrait.mp4, portrait-new.mp4, portrait-narzo.mp4), which
  the user removed later the same day: no portrait footage
- in the demo. The settings stay frozen.
+ in the demo. Later still on 2026-11-07 the user deleted
+ rope.mp4 as well, so the demo set is clear and zoomed-in;
+ rope's rows and result files were removed, and its figures
+ below stay as measurements only. The settings stay frozen.
  First 10-second runs on them (Phase 10 smoke check):
    • The upright recordings carry a "rotate -90" tag. OpenCV
      applies it, so probe_video now reports the upright size
@@ -1666,6 +2136,213 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • Static cameras have no camera car, and plates are seen
      head-on, so coverage should be higher than on dashcam
      footage; 10 seconds is too little to say.
+══════════════════════════════════════════════════════════════
+
+
+══════════════════════════════════════════════════════════════
+ HOW TO MEASURE REAL ACCURACY (procedure, not yet carried out)
+══════════════════════════════════════════════════════════════
+
+ WHY COVERAGE IS NOT ACCURACY
+
+ Coverage answers "of the vehicles we counted, how many ended
+ with a confirmed number?" (48 of 251 = 19.1% on the demo
+ set). It says nothing about whether those 48 numbers are
+ right, whether the 203 others had readable plates we missed,
+ or whether 251 is the true number of vehicles. Accuracy
+ needs a reference the system did not produce: a person
+ writing down the truth for a sample of vehicles. That
+ reference is the "hand-labelled set" (ground truth).
+
+ Three questions, three different measurements:
+
+   1. Reading accuracy    When the system confirms a number,
+                          how often is it the right number?
+   2. Reading recall      Of the vehicles whose plate a person
+                          can read in the video, how many did
+                          the system confirm correctly?
+   3. Counting accuracy   Is "Total Vehicles" right? Vehicles
+                          missed, counted twice (track breaks),
+                          or not vehicles at all.
+
+ Each needs its own labels. Do 1 first: it is the cheapest
+ and the one leadership will ask about ("is that number
+ real?").
+
+ WHAT YOU NEED
+
+   • A processed video (its storage/processed/<name>/ folder
+     and database rows exist).
+   • The History page's Export CSV, or
+     storage/processed/<name>/results.json, which lists every
+     counted vehicle with its track id, time, status and the
+     number the system settled on.
+   • The crops under storage/vehicle_crops/<name>/T<id>.jpg
+     and storage/plate_crops/<name>/T<id>_f<frame>.png, which
+     is what a person looks at to read the truth.
+   • The annotated video, to check a vehicle in context when
+     the crops are not enough.
+   • A spreadsheet or CSV editor. Nothing else.
+
+ HOW BIG A SAMPLE
+
+ Accuracy from n checked items has a margin of error of about
+ ±1/√n at the usual 95% confidence: 30 items → ±18 points,
+ 100 → ±10, 400 → ±5. For a first answer, label every
+ confirmed vehicle of the demo set (48 today) plus 100
+ unconfirmed or not-detected ones; report the margins with
+ the numbers. Never quote accuracy from fewer than 30 items
+ without the margin beside it.
+
+ STEP 1 — EXPORT THE SYSTEM'S ANSWERS
+
+   From the dashboard: Detection History → choose the video
+   (or all) → Export CSV. Or, on the command line:
+     curl -s "http://localhost:8080/api/detections/export.csv?video_id=<id>" > labels/<name>_system.csv
+   Columns: video, track, vehicle_type, first_seen_s,
+   last_seen_s, registration_number, status, confidence,
+   agreeing_frames, readings, reason, demo_registry_match.
+
+ STEP 2 — MAKE THE LABEL SHEET
+
+   Create labels/<name>_truth.csv with these columns, one
+   row per vehicle track from step 1 (copy track, vehicle_type,
+   first_seen_s, registration_number and status across as the
+   system's answer; add the empty label columns):
+
+     track            T<id>, from the export
+     system_number    what the system said (may be empty)
+     system_status    confirmed / unconfirmed / not_detected
+     true_number      what a person reads from the plate crop
+                      and the video; empty if no plate is
+                      legible to a human either
+     plate_legible    yes / partly / no (partly = a human can
+                      read some characters but not all)
+     true_type        Car / Motorcycle / Bus / Truck / Other,
+                      if it differs from the system's type
+     is_vehicle       yes / no (no = the track is not a
+                      vehicle: a sign, a shadow, a person)
+     duplicate_of     T<id> of an earlier track if this is the
+                      same vehicle counted again; else empty
+     note             anything odd (cut off, night, two-line
+                      plate, glare)
+
+   Keep the labels/ folder in git: it is small text, and the
+   point is that the measurement can be repeated after any
+   change to the pipeline.
+
+ STEP 3 — LABEL, WITH RULES WRITTEN DOWN FIRST
+
+   • Read the plate crop(s) first, then the vehicle crop,
+     then the video at first_seen_s if still unsure. Write
+     the number exactly as printed, without spaces, upper
+     case (KL07AB1234). If one character is unreadable, write
+     it as ? and set plate_legible = partly.
+   • Do not look at system_number before writing true_number
+     (cover the column, or label from the crops folder by
+     file name). Reading the system's answer first makes a
+     person agree with it; that is the main way such
+     measurements go wrong.
+   • Two people labelling the same 30 vehicles independently,
+     then comparing, tells you how reliable the labels
+     themselves are. Disagreements are usually two-line
+     plates and 0/O, 8/B, 1/I.
+   • Label every row of the sample, including the ones the
+     system got nothing for: those are where recall is
+     decided.
+
+ STEP 4 — COUNT
+
+   Over rows with is_vehicle = yes and duplicate_of empty:
+
+   Reading accuracy (precision of confirmed numbers)
+     correct    = confirmed and system_number == true_number
+     wrong      = confirmed and system_number != true_number
+     accuracy   = correct / (correct + wrong)
+     Report also the character error rate of the wrong ones
+     (how many characters differ): one wrong character is a
+     very different failure from a made-up number.
+
+   Reading recall (over plates a human can read)
+     readable   = rows with plate_legible = yes
+     found      = readable rows that are confirmed and correct
+     recall     = found / readable
+     Also list readable rows that ended unconfirmed with the
+     right number: those are the system being cautious, not
+     wrong, and say whether the thresholds are too strict.
+
+   Unconfirmed, what are they?
+     Of the unconfirmed rows, how many had the right number as
+     system_number (the guess was right but unsupported), how
+     many wrong, how many had no legible plate at all. This
+     tells whether loosening the rules would gain true
+     numbers or let errors through.
+
+   Counting accuracy (needs the extra labels)
+     false tracks   = is_vehicle = no
+     duplicates     = duplicate_of not empty
+     misses         = vehicles a person sees in the video that
+                      have no track at all. Finding these means
+                      watching the video and counting, at least
+                      for one or two minutes; note the time
+                      window used.
+     counted vehicles vs true vehicles in that window, with
+     the three error kinds listed separately.
+
+   Type accuracy
+     rows where true_type is filled and differs from the
+     system's type, as a share of all labelled vehicles.
+
+   A spreadsheet does all of this with COUNTIFS; a short
+   script (tools/measure_accuracy.py, to be written when the
+   first label sheet exists) should produce the same table so
+   it can be re-run after any change.
+
+ STEP 5 — WRITE IT UP HONESTLY
+
+   Report, for each video and overall:
+     • n labelled, n confirmed, accuracy of confirmed numbers
+       with its ± margin
+     • recall over human-readable plates with its margin
+     • the list of wrong confirmations, each with crop, system
+       number, true number (these are the ones to study)
+     • counting errors by kind, if measured
+     • who labelled, when, with which rules, and the git
+       commit of the pipeline that produced the answers
+   Put the table in this file next to the acceptance run, and
+   only then consider showing an accuracy figure on the
+   Analytics page, labelled with its sample size and date.
+   Until a label sheet exists the dashboard must keep saying
+   "coverage, not accuracy".
+
+ WHAT TO EXPECT, FROM WHAT IS KNOWN SO FAR
+
+   • The OCR smoke test (below) read all 16 clearly legible
+     plates correctly out of 16, so accuracy of confirmed
+     numbers on legible plates should be high; the acceptance
+     run found the confirmation rules reject most single-frame
+     and low-confidence readings, which is what keeps wrong
+     numbers out.
+   • Recall will be the weak figure: most vehicles are seen
+     from the side, cut off, or with plates under 60 px wide.
+     That is a camera placement question more than a model
+     question, and the measurement will show it.
+   • The known failure shapes to look for in the wrong list:
+     a neighbour's plate credited to a vehicle whose box
+     encloses it (Phase 6), two-line plates, 0/O and 8/B,
+     and the state code misread (a Kerala plate once read as
+     DL at 0.86 confidence).
+
+ WHEN THE PIPELINE CHANGES
+
+   The settings are frozen for the demo. After the demo, any
+   change (thresholds, a new plate detector, a reader
+   fallback) is judged by re-running the same label sheet:
+   process the same videos, export, join on track and time
+   (track ids change between runs, so match on first_seen_s
+   within a second and vehicle type), recount. A change is
+   worth keeping only if accuracy does not fall and recall
+   rises, or the other way round, by more than the margins.
 ══════════════════════════════════════════════════════════════
 
 

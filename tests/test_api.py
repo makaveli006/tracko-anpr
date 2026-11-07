@@ -165,6 +165,19 @@ def test_a_real_mp4_is_stored_under_uploads_and_registered(client, settings, tmp
     assert not (settings.uploads_dir / "My-Clip.part.mp4").exists()
     assert client.get(f"/api/videos/{video['id']}").json()["name"] == "My-Clip"
     assert client.get("/api/videos").json()[0]["id"] == video["id"]
+    # Every upload asks the worker for a plate-size check; the result arrives on the same record.
+    assert video["plate_check"]["status"] == "pending" and video["plate_check"]["result"] is None
+    assert client.get(f"/api/videos/{video['id']}").json()["plate_check"]["requested_at"]
+
+
+def test_a_plate_size_check_can_be_requested_again(client, app, settings):
+    video_id = stored_run(app, settings)
+    assert client.get(f"/api/videos/{video_id}").json()["plate_check"] is None  # registered before the check existed
+    response = client.post(f"/api/videos/{video_id}/plate-check")
+    assert response.status_code == 202, response.text
+    assert response.json()["plate_check"]["status"] == "pending"
+    assert client.post("/api/videos/999/plate-check").status_code == 404
+    assert client.get("/api/jobs").json().__len__() == 1  # a check is not a processing job
 
 
 @needs_ffmpeg
@@ -255,9 +268,21 @@ def test_one_detection_in_full_with_its_frame_by_frame_evidence(client, app, set
     detail = client.get(f"/api/detections/{track_pk}").json()
     assert detail["detection"]["registration_number"] == "KL07AB1234"
     assert detail["frames_seen"] == 91
-    assert len(detail["observations"]) == 1
-    assert detail["observations"][0]["text"] == "KL07AB1234"
+    assert len(detail["observations"]) == 3
+    assert detail["observations"][1]["text"] == "KL07AB1234"
     assert detail["observations"][0]["crop_path"].startswith("storage/plate_crops/")
+    assert detail["detection"]["approach"] == "towards" and detail["detection"]["sideways"] is None
+    # The lifecycle, reconstructed from the rows: first seen, a look-alike reading (Z for 2, which the
+    # validator counts as agreeing), the right one, confirmed at that second agreeing frame, last seen.
+    assert [(e["kind"], e["frame"]) for e in detail["events"]] == [
+        ("new", 0),
+        ("read", 20),
+        ("read", 30),
+        ("confirmed", 30),
+        ("lost", 90),
+    ]
+    assert detail["events"][-1]["text"] == "Last seen · Towards camera"
+    assert detail["events"][1]["text"].startswith("Read as KL07AB1Z34")
     assert client.get("/api/detections/99999").status_code == 404
 
 
@@ -272,10 +297,15 @@ def test_history_filters_sorts_pages_and_exports(client, app, settings):
     assert client.get("/api/detections?limit=3&offset=6").json()["rows"].__len__() == 2
     by_confidence = client.get("/api/detections?sort=confidence&descending=false").json()["rows"]
     assert by_confidence[0]["detection"]["status"] == "not_detected"
+    assert client.get("/api/detections?approach=away").json()["total"] == 2
+    assert client.get("/api/detections?approach=none").json()["total"] == 2
+    assert client.get("/api/detections?approach=sideways").status_code == 422
     csv_text = client.get("/api/detections/export.csv?status=confirmed").text
     lines = csv_text.strip().splitlines()
-    assert lines[0].startswith("video,track,vehicle_type")
+    assert lines[0].startswith("video,track,vehicle_type,first_seen_s,last_seen_s,direction,registration_number")
     assert len(lines) == 5 and "KL07AB1234" in csv_text
+    assert any(',"Towards camera, left",KL10CD5678,' in line for line in lines)
+    assert client.get("/api/detections/export.csv?approach=away").text.strip().splitlines().__len__() == 3
 
 
 def test_a_confirmed_number_in_the_demo_registry_shows_as_a_match(client, app, settings):
@@ -294,12 +324,111 @@ def test_a_confirmed_number_in_the_demo_registry_shows_as_a_match(client, app, s
         )
     rows = client.get(f"/api/videos/{video_id}/detections").json()
     matched = next(row for row in rows if row["detection"]["track_id"] == 1)
-    assert matched["registry_match"]["owner_name"] == "A. Demo"
-    assert matched["registry_match"]["fictional"] is True
+    assert matched["registry_match"]["exact"] is True and matched["registry_match"]["record"]["owner_name"] == "A. Demo"
+    assert matched["registry_match"]["record"]["fictional"] is True
     lookup = client.get("/api/registry/KL07AB1234").json()
-    assert lookup["match"] is True and "fictional" in lookup["disclaimer"]
-    assert client.get("/api/registry/KL00ZZ0000").json()["match"] is False
+    assert lookup["match"] is True and lookup["possible"] is False and "fictional" in lookup["disclaimer"]
+    assert client.get("/api/registry/kl 07 ab 1234").json()["match"] is True  # spaces and case do not matter
+    missing = client.get("/api/registry/KL00ZZ0000").json()
+    assert missing["match"] is False and missing["possible"] is False and missing["record"] is None
     assert client.get("/api/registry?search=07ab").json()["entries"][0]["registration_number"] == "KL07AB1234"
+
+
+def test_registry_lists_descriptions_and_csv_import(client, app, settings):
+    video_id = stored_run(app, settings)
+    assert client.get("/api/registry/lists").json() == []
+    bad = client.post("/api/registry/lists", json={"number": "hello", "list_name": "Staff"})
+    assert bad.status_code == 400 and "not a valid Indian registration number" in bad.json()["detail"]
+    assert client.post("/api/registry/lists", json={"number": "KL07AB1234", "list_name": " "}).status_code == 400
+
+    made = client.post(
+        "/api/registry/lists",
+        json={"number": "kl 07 ab 1234", "list_name": "Staff", "description": "gate pass", "added_by": "Anand"},
+    )
+    assert made.status_code == 201, made.text
+    record = made.json()
+    assert record["registration_number"] == "KL07AB1234" and record["list_name"] == "Staff"
+    assert record["description"] == "gate pass" and record["fictional"] is True
+    assert record["note"].startswith("Added from the dashboard by Anand on") and record["owner_name"].startswith("(")
+    row = next(r for r in client.get(f"/api/videos/{video_id}/detections").json() if r["detection"]["track_id"] == 1)
+    assert row["registry_match"]["exact"] is True and row["registry_match"]["record"]["list_name"] == "Staff"
+    assert client.get("/api/registry/KL07AB1234").json()["record"]["description"] == "gate pass"
+    assert client.get("/api/registry/lists").json() == [{"name": "Staff", "count": 1}]
+    assert len(client.get("/api/registry?list=Staff").json()["entries"]) == 1
+    assert client.get("/api/registry?list=Visitors").json()["entries"] == []
+
+    template = client.get("/api/registry/import-template.csv")
+    assert template.status_code == 200 and template.text.startswith("registration_number,owner_name,")
+    rows = (
+        "registration_number,owner_name,vehicle_type,valid_until,description,list_name\n"
+        "KL10CD5678,B. Import,Truck,2029-01-31,delivery van,Visitors\n"
+        "kl07 ab 1234,,,,,Visitors\n"  # an existing record: only its list changes
+        "HELLO,,,,,\n"  # not a plate
+        "KL07AB1299,,Spaceship,not-a-date,,\n"  # an unknown type would become Car, but the date is wrong
+    )
+    imported = client.post(
+        "/api/registry/import", files={"file": ("list.csv", rows.encode(), "text/csv")}, data={"added_by": "Anand"}
+    )
+    assert imported.status_code == 200, imported.text
+    outcome = imported.json()
+    assert (outcome["created"], outcome["updated"]) == (1, 1)
+    assert [line for line, _ in outcome["skipped"]] == [4, 5]
+    assert "not a valid" in outcome["skipped"][0][1] and "not a date" in outcome["skipped"][1][1]
+    assert client.get("/api/registry/lists").json() == [{"name": "Visitors", "count": 2}]
+    truck = client.get("/api/registry/KL10CD5678").json()["record"]
+    assert (
+        truck["owner_name"] == "B. Import" and truck["vehicle_type"] == "Truck" and truck["valid_until"] == "2029-01-31"
+    )
+    assert truck["note"].startswith("Imported from list.csv by Anand")
+    assert client.get("/api/registry/KL07AB1234").json()["record"]["description"] == "gate pass"  # kept
+    assert (
+        client.post("/api/registry/import", files={"file": ("x.csv", b"owner_name\nA\n", "text/csv")}).status_code
+        == 400
+    )
+
+    edited = client.put(
+        f"/api/registry/{record['id']}", json={"description": "left the company", "list_name": "Former"}
+    )
+    assert edited.status_code == 200 and edited.json()["list_name"] == "Former"
+    assert edited.json()["description"] == "left the company"
+    cleared = client.delete(f"/api/registry/{record['id']}/list")
+    assert cleared.status_code == 200 and cleared.json()["list_name"] is None
+    assert client.get("/api/registry/lists").json() == [{"name": "Visitors", "count": 1}]
+    assert client.put("/api/registry/99999", json={"description": "x"}).status_code == 404
+    assert client.get("/api/registry/KL07AB1234").json()["match"] is True  # the record itself stays
+
+
+def _registry_entry(number: str, owner: str = "N. Near") -> DemoRegistryEntry:
+    return DemoRegistryEntry(
+        registration_number=number, owner_name=owner, vehicle_description="Honda City", vehicle_type="Car",
+        colour="Grey", registered_at="Ernakulam RTO", valid_until=date(2030, 1, 1),
+    )  # fmt: skip
+
+
+def test_a_record_one_character_away_is_a_possible_match_never_a_match(client, app, settings):
+    video_id = stored_run(app, settings)
+    with session_scope(app.state.session_factory) as session:
+        session.add(_registry_entry("KL07AB1284"))  # 8 where the video's KL07AB1234 has 3
+    rows = client.get(f"/api/videos/{video_id}/detections").json()
+    row = next(r for r in rows if r["detection"]["track_id"] == 1)
+    found = row["registry_match"]
+    assert found["exact"] is False and found["distance"] == 1
+    assert found["difference"] == "3 read where the record has 8"
+    assert found["record"]["registration_number"] == "KL07AB1284" and found["others"] == 0
+    assert row["detection"]["registration_number"] == "KL07AB1234"  # the reading itself is untouched
+    lookup = client.get("/api/registry/KL07AB1234").json()
+    assert lookup["match"] is False and lookup["possible"] is True
+    assert lookup["difference"] == "3 read where the record has 8" and lookup["record"]["owner_name"] == "N. Near"
+    detail = client.get(f"/api/detections/{row['detection']['track_pk']}").json()
+    assert detail["registry_match"]["exact"] is False
+    header, *lines = client.get("/api/detections/export.csv?status=confirmed").text.strip().splitlines()
+    assert "demo_registry_match,demo_registry_possible," in header
+    assert any(",KL07AB1234," in line and ",,KL07AB1284," in line for line in lines)  # no owner, the near number
+
+    with session_scope(app.state.session_factory) as session:
+        session.add(_registry_entry("KL07AB1234", "A. Exact"))
+    row = next(r for r in client.get(f"/api/videos/{video_id}/detections").json() if r["detection"]["track_id"] == 1)
+    assert row["registry_match"]["exact"] is True and row["registry_match"]["record"]["owner_name"] == "A. Exact"
 
 
 # --- files --------------------------------------------------------------------------------------
@@ -381,6 +510,50 @@ def test_the_dashboard_pages_and_theme_are_served_from_the_same_process(settings
         assert client.get("/api/system/status").status_code == 200  # the API is still there
 
 
+def test_an_operator_can_correct_a_number_and_type_without_changing_the_figures(client, app, settings):
+    video_id = stored_run(app, settings)
+    before = client.get("/api/summary").json()
+    rows = client.get(f"/api/videos/{video_id}/detections").json()
+    track_pk = next(r["detection"]["track_pk"] for r in rows if r["detection"]["track_id"] == 1)  # KL07AB1234
+
+    bad = client.put(f"/api/detections/{track_pk}/correction", json={"number": "hello"})
+    assert bad.status_code == 400 and "not a valid Indian registration number" in bad.json()["detail"]
+    same = client.put(f"/api/detections/{track_pk}/correction", json={"number": "kl 07 ab 1234"})
+    assert same.status_code == 400 and "already the system's result" in same.json()["detail"]
+    assert client.put("/api/detections/99999/correction", json={"number": "KL07AB1299"}).status_code == 404
+
+    saved = client.put(
+        f"/api/detections/{track_pk}/correction",
+        json={"number": "kl07 ab 1284", "vehicle_type": "Motorcycle", "corrected_by": "Anand", "note": "4 not 3"},
+    )
+    assert saved.status_code == 200, saved.text
+    detail = saved.json()
+    assert detail["detection"]["registration_number"] == "KL07AB1234"  # the system's result is untouched
+    assert detail["correction"]["corrected_number"] == "KL07AB1284"
+    assert detail["correction"]["corrected_type"] == "Motorcycle"
+    assert detail["correction"]["corrected_by"] == "Anand" and detail["correction"]["system_status"] == "confirmed"
+    assert len(detail["corrections"]) == 1
+
+    assert client.get("/api/summary").json() == before  # cards and coverage unchanged
+    row = next(
+        r for r in client.get(f"/api/videos/{video_id}/detections").json() if r["detection"]["track_pk"] == track_pk
+    )
+    assert row["correction"]["corrected_number"] == "KL07AB1284" and row["detection"]["status"] == "confirmed"
+
+    listed = client.get("/api/corrections").json()
+    assert listed["summary"]["tracks_corrected"] == 1 and listed["summary"]["confirmed_numbers_changed"] == 1
+    assert listed["corrections"][0]["track_id"] == 1
+    csv_text = client.get("/api/detections/export.csv").text
+    header, *lines = csv_text.strip().splitlines()
+    assert header.endswith("corrected_number,corrected_type,corrected_by,corrected_at")
+    assert any(",KL07AB1284,Motorcycle,Anand," in line for line in lines)
+
+    undone = client.delete(f"/api/detections/{track_pk}/correction")
+    assert undone.status_code == 200 and undone.json()["correction"] is None
+    assert client.delete(f"/api/detections/{track_pk}/correction").status_code == 400
+    assert client.get("/api/analytics").json()["corrections"]["tracks_corrected"] == 0
+
+
 def test_the_registry_seeder_makes_matches_and_non_matches_and_is_repeatable(app, settings):
     from tracko_anpr.services import registry, registry_seed
 
@@ -393,12 +566,21 @@ def test_the_registry_seeder_makes_matches_and_non_matches_and_is_repeatable(app
         assert again.created_from_videos == 0 and again.skipped_existing == 2 and again.created_extra == 0
         assert registry.count(session) == 4
         numbers = registry.recognized_numbers(session)
-        assert {n.registration_number: n.match for n in numbers} == {"KL07AB1234": True, "KL10CD5678": True}
-        half = registry_seed.seed(session, share=0.0, extra=0, reset=True)
+        assert {n.registration_number: n.exact for n in numbers} == {"KL07AB1234": True, "KL10CD5678": True}
+        half = registry_seed.seed(session, share=0.0, extra=0, near=0.0, reset=True)
         assert half.created_from_videos == 0 and registry.count(session) == 0
-        assert all(not n.match for n in registry.recognized_numbers(session))
-        record = registry.lookup(session, "kl07ab1234")
-        assert record is None
+        assert all(not n.exact for n in registry.recognized_numbers(session))
+        assert registry.lookup(session, "kl07ab1234") is None
+
+        # Near-miss records: one character from a confirmed number that has no record, so "possible match" shows.
+        near = registry_seed.seed(session, share=0.0, extra=0, near=1.0, reset=True)
+        assert near.created_near == 2 and registry.count(session) == 2
+        possible = {n.registration_number: n.possible for n in registry.recognized_numbers(session)}
+        assert possible == {"KL07AB1234": True, "KL10CD5678": True}
+        found = registry.lookup(session, "KL07AB1234")
+        assert found is not None and found.possible and found.distance == 1
+        assert found.record.registration_number != "KL07AB1234" and "one character from KL07AB1234" in found.record.note
+        assert registry_seed.seed(session, share=0.0, extra=0, near=1.0).created_near == 0  # repeatable
 
 
 def test_a_busy_worker_is_alive_even_when_a_stage_reports_nothing_for_half_a_minute(app, settings):

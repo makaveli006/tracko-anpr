@@ -1,12 +1,13 @@
 """Detection History (DESIGN section 15): every counted vehicle across all videos, searchable.
 
-Filters (video, validation state, vehicle type, number search), sortable columns, paging and a
+Filters (video, validation state, vehicle type, travel direction, number search), sortable columns, paging and a
 CSV export of exactly the rows shown. A row opens the details; from there "Open in Video
 Analysis" lands on the player at that moment.
 """
 
 from __future__ import annotations
 
+import json
 from urllib.parse import urlencode
 
 from nicegui import ui
@@ -26,6 +27,7 @@ STATUSES = {
     "not_detected": "Not detected",
 }
 TYPES = {None: "All vehicle types", "Car": "Car", "Motorcycle": "Motorcycle", "Bus": "Bus", "Truck": "Truck"}
+DIRECTIONS = {None: "All directions", "towards": "Towards camera", "away": "Away from camera", "none": "Undetermined"}
 
 
 class HistoryView:
@@ -38,15 +40,17 @@ class HistoryView:
         sort: str,
         desc: bool,
         offset: int,
+        approach: str | None = None,
     ) -> None:
         self.video, self.status, self.vehicle_type, self.search = video, status, vehicle_type, search
-        self.sort, self.desc, self.offset = sort, desc, offset
+        self.sort, self.desc, self.offset, self.approach = sort, desc, offset, approach
         self.page: HistoryPage | None = None
         self.options: dict[int | None, str] = {None: "All videos"}
 
     def url(self, **changes) -> str:
-        values = {"video": self.video, "status": self.status, "type": self.vehicle_type, "q": self.search or None,
-                  "sort": self.sort, "desc": int(self.desc), "offset": self.offset}  # fmt: skip
+        values = {"video": self.video, "status": self.status, "type": self.vehicle_type, "dir": self.approach,
+                  "q": self.search or None, "sort": self.sort, "desc": int(self.desc),
+                  "offset": self.offset}  # fmt: skip
         values.update(changes)
         return "/history?" + urlencode({k: v for k, v in values.items() if v not in (None, "")})
 
@@ -56,6 +60,7 @@ class HistoryView:
             "status": self.status,
             "vehicle_type": self.vehicle_type,
             "search": self.search or None,
+            "approach": self.approach,
         }
         return "/api/detections/export.csv?" + urlencode({k: v for k, v in values.items() if v not in (None, "")})
 
@@ -64,7 +69,7 @@ class HistoryView:
         self.options.update({v.id: v.name for v in listed if v.completed_job_id is not None})
         self.page = await query(
             results.detection_history, self.video, self.status, self.vehicle_type, self.search or None,
-            self.sort, self.desc, self.offset, PAGE_SIZE,
+            self.sort, self.desc, self.offset, PAGE_SIZE, self.approach,
         )  # fmt: skip
 
     def build(self) -> None:
@@ -88,6 +93,12 @@ class HistoryView:
                     label="Vehicle type",
                     on_change=lambda e: ui.navigate.to(self.url(type=e.value, offset=0)),
                 ).props("outlined dense dark options-dense").style("min-width: 180px")
+                ui.select(
+                    DIRECTIONS,
+                    value=self.approach,
+                    label="Direction",
+                    on_change=lambda e: ui.navigate.to(self.url(dir=e.value, offset=0)),
+                ).props("outlined dense dark options-dense").style("min-width: 190px")
                 search = (
                     ui.input("Registration number", value=self.search, placeholder="e.g. KL07")
                     .props("outlined dense dark clearable")
@@ -101,6 +112,7 @@ class HistoryView:
                     on_click=lambda: ui.navigate.to(self.url(q=search.value or None, offset=0)),
                 ).classes("tk-secondary")
                 ui.element("div").style("flex: 1 1 0")
+                ui.button("Copy link", color=None, icon="link", on_click=self.copy_link).classes("tk-secondary")
                 ui.button(
                     "Export CSV",
                     color=None,
@@ -148,6 +160,7 @@ class HistoryView:
                         "video",
                         "track",
                         "vehicle_type",
+                        "direction",
                         "registration_number",
                         "confidence",
                         "status",
@@ -164,23 +177,35 @@ class HistoryView:
                 "registry is fictional."
             ).classes("tk-muted text-xs mt-1")
 
+    def copy_link(self) -> None:
+        """Put the address of this exact view (filters, sort, page) on the clipboard."""
+        ui.run_javascript(f"navigator.clipboard.writeText(window.location.origin + {json.dumps(self.url())})")
+        ui.notify("Link to this search copied.", type="positive")
+
     def sorted_by(self, column: str) -> None:
         descending = not self.desc if column == self.sort else column in ("time", "confidence")
         ui.navigate.to(self.url(sort=column, desc=int(descending), offset=0))
 
     async def row_clicked(self, row: DetectionRow) -> None:
         d = row.detection
+
+        async def reload() -> None:
+            ui.navigate.to(self.url())  # the page is its URL: reloading it redraws the table
+
         await show_detection(
-            d.track_pk, open_in_analysis=f"/analysis?video={d.video_id}&t={max(0.0, d.first_seen_s - 0.5):.2f}"
+            d.track_pk,
+            open_in_analysis=f"/analysis?video={d.video_id}&t={max(0.0, d.first_seen_s - 0.5):.2f}",
+            on_change=reload,
         )
 
 
 @ui.page("/history")
 async def history_page(
     video: int | None = None, status: str | None = None, type: str | None = None, q: str = "",
-    sort: str = "time", desc: int = 1, offset: int = 0,
+    sort: str = "time", desc: int = 1, offset: int = 0, dir: str | None = None,
 ) -> None:  # fmt: skip
-    view = HistoryView(video, status or None, type or None, q, sort, bool(desc), max(0, offset))
+    approach = dir if dir in ("towards", "away", "none") else None
+    view = HistoryView(video, status or None, type or None, q, sort, bool(desc), max(0, offset), approach)
     await view.load()
     with frame("history", "Detection History", "Every recognised number plate, across all processed videos"):
         view.build()

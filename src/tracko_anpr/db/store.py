@@ -130,6 +130,8 @@ def store_result(session: Session, job: ProcessingJob, result: PipelineResult, r
             same_vehicle_as=vehicle.same_vehicle_as,
             counts_as_vehicle=vehicle.counts_as_vehicle,
             vehicle_crop_path=relative_path(vehicle.vehicle_crop, root),
+            approach=vehicle.direction.approach,
+            sideways=vehicle.direction.sideways,
         )
         session.add(track)
         session.flush()  # the track needs its id before its plates can point at it

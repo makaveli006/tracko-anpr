@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -120,6 +121,34 @@ def _run_track(args: argparse.Namespace) -> int:
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    """Measure the plate sizes of a video from a few sampled frames, without processing it."""
+    from tracko_anpr.pipeline.plate_check import check_plate_sizes
+
+    settings = get_settings()
+    info = probe_video(args.video)
+    print(
+        f"Video: {info.path.name}, {info.width}x{info.height}, {info.fps_float:.2f} FPS, "
+        f"{info.frame_count} frames, {info.duration_s:.1f} s"
+    )
+    started = time.perf_counter()
+    found = check_plate_sizes(info, settings, count=args.frames)
+    print(f"Checked {found.frames_sampled} frames in {time.perf_counter() - started:.1f} s")
+    print(f"  Vehicles seen      {found.vehicles_seen}")
+    print(f"  Plates seen        {found.plates_seen}")
+    if found.plates_seen:
+        print(f"  Median plate width {found.median_width_px} px")
+        print(f"  Largest (p90)      {found.largest_width_px} px")
+        print(f"  Under 60 px        {found.share_under_60:.0%}   130 px and over {found.share_over_130:.0%}")
+    print(f"  Verdict            {found.verdict}")
+    print(f"  {found.message}")
+    print("  Size only: blur, angle and light are not checked.")
+    if args.json:
+        args.json.write_text(json.dumps(found.as_dict(), indent=2), encoding="utf-8")
+        print(f"  Written to {args.json}")
+    return 0
 
 
 def _run_read_plates(args: argparse.Namespace) -> int:
@@ -481,13 +510,15 @@ def _run_seed_registry(args: argparse.Namespace) -> int:
     settings = get_settings()
     with session_scope(make_session_factory(_open_database(settings))) as session:
         outcome = registry_seed.seed(
-            session, share=args.share, extra=args.extra, seed_value=args.seed, reset=args.reset
+            session, share=args.share, extra=args.extra, seed_value=args.seed, reset=args.reset, near=args.near
         )
         total = registry.count(session)
     print(
         f"Confirmed numbers in the processed videos: {outcome.confirmed_numbers}. "
         f"Created {outcome.created_from_videos} fictional records for them (about {args.share:.0%}), "
-        f"{outcome.created_extra} for numbers seen in no video; {outcome.skipped_existing} already existed. "
+        f"{outcome.created_extra} for numbers seen in no video, {outcome.created_near} near-miss records one "
+        f"character from a number without a record (about {args.near:.0%}); {outcome.skipped_existing} already "
+        f"existed. "
         f"Registry now holds {total} fictional records."
     )
     print("Demonstration data only: every record is invented; no real registration database is consulted.")
@@ -510,6 +541,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-video", action="store_true", help="Skip the annotated video; write only the detections and tracks."
     )
     track.set_defaults(handler=_run_track)
+
+    check = commands.add_parser(
+        "check", help="Measure the plate sizes in an MP4 from a few sampled frames: will its plates be readable?"
+    )
+    check.add_argument("video", type=Path, help="Path to an MP4 video.")
+    check.add_argument("--frames", type=int, default=24, help="How many frames to sample (default 24).")
+    check.add_argument("--json", type=Path, default=None, help="Also write the figures to this JSON file.")
+    check.set_defaults(handler=_run_check)
 
     read_plates = commands.add_parser(
         "read-plates", help="Read plate crops in a folder by starting the plate reader service and asking it."
@@ -564,6 +603,12 @@ def build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--share", type=float, default=0.5, help="Share of confirmed numbers to give a record (0.5).")
     seed.add_argument("--extra", type=int, default=4, help="Fictional numbers seen in no video to add (4).")
     seed.add_argument("--seed", type=int, default=2026, help="Random seed, so a re-run adds nothing new.")
+    seed.add_argument(
+        "--near",
+        type=float,
+        default=0.25,
+        help="Share of the numbers left without a record to give a near-miss (0.25).",
+    )
     seed.add_argument("--reset", action="store_true", help="Delete the existing registry first.")
     seed.set_defaults(handler=_run_seed_registry)
 

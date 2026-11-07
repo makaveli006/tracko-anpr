@@ -18,6 +18,9 @@ What the worker guarantees:
   every job; if it dies, the client restarts it on the next request.
 - A failure in one job (a corrupt file, a dead reader) is recorded on that job, and the worker
   carries on with the next.
+- Plate-size checks (`videos.plate_check`, services/videos.py) are a second, lighter queue: a
+  pending check is served before the next queued job because it takes half a minute and someone
+  is waiting for it on the Upload page. Its two detectors are loaded once and kept.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from tracko_anpr.db.session import session_scope
 from tracko_anpr.db.store import mark_failed, store_result
 from tracko_anpr.pipeline.ocr_client import OcrClient
 from tracko_anpr.services.readiness import record_worker_heartbeat
+from tracko_anpr.services.videos import CHECK_DONE, CHECK_FAILED, CHECK_PENDING, CHECK_RUNNING, set_plate_check
 
 Logger = Callable[[str], None]
 
@@ -82,6 +86,8 @@ class Worker:
         log: Logger | None = None,
         run_pipeline: Callable | None = None,
         reader_factory: Callable[[], OcrClient] | None = None,
+        check_plates: Callable | None = None,
+        check_models_factory: Callable | None = None,
     ) -> None:
         self.settings = settings
         self.factory = factory
@@ -95,6 +101,10 @@ class Worker:
         # The pipeline and the reader are parameters so the worker's own logic can be tested without models.
         self._run_pipeline = run_pipeline
         self._reader_factory = reader_factory or self._project_reader
+        # The plate-size check and its models are parameters for the same reason; a fake check gets no models.
+        self._check_plates = check_plates
+        self._check_models_factory = check_models_factory or (None if check_plates else self._project_check_models)
+        self.check_models = None
 
     # --- life cycle --------------------------------------------------------------------------
 
@@ -108,6 +118,9 @@ class Worker:
         if self.reader is not None:
             self.reader.stop()
             self.reader = None
+        if self.check_models is not None:
+            self.check_models.close()
+            self.check_models = None
 
     def request_stop(self) -> None:
         """Finish the current job (if any), then stop. Safe to call from a signal handler."""
@@ -119,6 +132,10 @@ class Worker:
         try:
             while not self.stop_requested.is_set():
                 self.heartbeat()
+                video_id = self.claim_next_check()
+                if video_id is not None:
+                    self.run_check(video_id)
+                    continue
                 job_id = self.claim_next_job()
                 if job_id is None:
                     if once:
@@ -148,6 +165,11 @@ class Worker:
         """
         recovered: list[int] = []
         with session_scope(self.factory) as session:
+            for video in session.scalars(
+                select(Video).where(Video.plate_check["status"].as_string() == CHECK_RUNNING)
+            ).all():
+                set_plate_check(video, status=CHECK_PENDING, started_at=None, worker_id=None)
+                self.log(f"plate-size check of {video.name} was left running; queued again")
             abandoned = session.scalars(
                 select(ProcessingJob).where(ProcessingJob.status == PROCESSING).order_by(ProcessingJob.id)
             ).all()
@@ -194,6 +216,69 @@ class Worker:
             job.stage_done = job.stage_total = 0
             job.error = None
             return job.id
+
+    # --- plate-size checks -------------------------------------------------------------------
+
+    def claim_next_check(self) -> int | None:
+        """Take the oldest pending plate-size check, marking it running. None when there is none."""
+        with session_scope(self.factory) as session:
+            video = session.scalars(
+                select(Video)
+                .where(Video.plate_check["status"].as_string() == CHECK_PENDING)
+                .order_by(Video.id)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            ).first()
+            if video is None:
+                return None
+            set_plate_check(video, status=CHECK_RUNNING, started_at=now().isoformat(), worker_id=self.worker_id)
+            return video.id
+
+    def run_check(self, video_id: int) -> str:
+        """Measure the plates of one video and record the outcome on it. Returns the final status."""
+        with session_scope(self.factory) as session:
+            video = session.get(Video, video_id)
+            video_name, path = video.name, video_file(video, self.settings.root)
+        self.log(f"plate-size check: {video_name}")
+        started = time.perf_counter()
+        try:
+            result = self._check()(path, self.settings, self._check_models_())
+        except Exception as error:  # a bad file must not stop the worker
+            message = f"{type(error).__name__}: {error}"
+            with session_scope(self.factory) as session:
+                set_plate_check(
+                    session.get(Video, video_id), status=CHECK_FAILED, finished_at=now().isoformat(), error=message
+                )
+            self.log(f"plate-size check: {video_name} failed: {message}")
+            return CHECK_FAILED
+        with session_scope(self.factory) as session:
+            set_plate_check(
+                session.get(Video, video_id),
+                status=CHECK_DONE,
+                finished_at=now().isoformat(),
+                error=None,
+                result=result.as_dict(),
+            )
+        self.log(f"plate-size check: {video_name} done in {time.perf_counter() - started:.0f} s: {result.message}")
+        return CHECK_DONE
+
+    def _check(self) -> Callable:
+        if self._check_plates is None:
+            from tracko_anpr.pipeline.plate_check import check_video_file  # loads PyTorch; only when needed
+
+            self._check_plates = check_video_file
+        return self._check_plates
+
+    def _check_models_(self):
+        """The check's two detectors, loaded on first use and kept; None when a fake check is in use."""
+        if self.check_models is None and self._check_models_factory is not None:
+            self.check_models = self._check_models_factory()
+        return self.check_models
+
+    def _project_check_models(self):
+        from tracko_anpr.pipeline.plate_check import CheckModels
+
+        return CheckModels(self.settings)
 
     # --- one job -----------------------------------------------------------------------------
 

@@ -10,7 +10,25 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tracko_anpr.pipeline.annotate import VEHICLE_BOX_COLOR, draw_vehicles, format_vehicle_label
+from tracko_anpr.pipeline.annotate import (
+    VEHICLE_BOX_COLOR,
+    PlateLabel,
+    draw_vehicles,
+    format_vehicle_label,
+    output_size,
+    plate_boxes_by_frame,
+    render_annotated_video,
+)
+from tracko_anpr.pipeline.direction import Direction, DirectionRules, direction_label, short_direction, travel_direction
+from tracko_anpr.pipeline.plate_check import (
+    BORDERLINE,
+    GOOD,
+    LOW,
+    NO_PLATES,
+    NO_VEHICLES,
+    sample_frame_numbers,
+    summarise,
+)
 from tracko_anpr.pipeline.results import (
     format_timestamp,
     frame_time,
@@ -26,6 +44,7 @@ from tracko_anpr.pipeline.tracking import (
     format_track_id,
     lost_track_buffer,
 )
+from tracko_anpr.pipeline.validation import describe_difference, edit_distance
 from tracko_anpr.pipeline.video import (
     FFmpegWriter,
     VideoError,
@@ -34,6 +53,7 @@ from tracko_anpr.pipeline.video import (
     is_quarter_turn,
     probe_video,
     read_frames,
+    read_frames_at,
     stream_rotation,
 )
 
@@ -227,6 +247,202 @@ def test_writing_part_of_a_video_takes_only_that_much_audio(tmp_path: Path):
             writer.write(np.zeros((48, 64, 3), dtype=np.uint8))
     assert probe_video(output).frame_count == 10
     assert _audio_seconds(output) < 0.5
+
+
+# --- one character of tolerance for the registry --------------------------------------------------------
+
+
+def test_edit_distance_counts_substitutions_insertions_and_deletions():
+    assert edit_distance("KL07AB1234", "KL07AB1234") == 0
+    assert edit_distance("KL07AB1234", "KL07AB1284") == 1  # 3 → 8
+    assert edit_distance("KL07AB1234", "KL07AB123") == 1  # a digit dropped
+    assert edit_distance("KL07AB123", "KL07AB1234") == 1
+    assert edit_distance("KL07AB1234", "KL07BA1234") == 2  # two letters swapped
+    assert edit_distance("", "KL") == 2
+
+
+def test_the_difference_is_described_in_words():
+    assert describe_difference("KL07AB1234", "KL07AB1284") == "3 read where the record has 8"
+    assert describe_difference("KL07AB123", "KL07AB1234") == "one character missing from the reading"
+    assert describe_difference("KL07AB12345", "KL07AB1234") == "one extra character in the reading"
+
+
+# --- the plate-size check -----------------------------------------------------------------------------
+
+
+def test_sampled_frames_are_spread_over_the_video_and_skip_its_ends():
+    numbers = sample_frame_numbers(1000, 16)
+    assert len(numbers) == 16 and numbers == sorted(numbers)
+    assert numbers[0] == 50 and numbers[-1] == 949  # the first and last 5% are left out
+    short = sample_frame_numbers(20, 16)
+    assert len(short) == 16 and short[0] == 1 and short[-1] == 18
+    assert sample_frame_numbers(12, 16) == list(range(0, 11))  # shorter still: every frame that fits
+    assert sample_frame_numbers(3, 16) == [0, 1]
+    assert sample_frame_numbers(0, 16) == [] and sample_frame_numbers(100, 0) == []
+
+
+def test_the_verdict_follows_the_largest_plates_seen():
+    good = summarise([40, 55, 70, 90, 120, 135, 150, 160, 170, 180], vehicles_seen=12, frames_sampled=16)
+    assert (good.verdict, good.plates_seen, good.vehicles_seen) == (GOOD, 10, 12)
+    assert good.largest_width_px == 170 and good.median_width_px == 128  # the 90th percentile, the median
+    assert (good.share_under_60, good.share_over_130) == (0.2, 0.5)
+    assert "170 px" in good.message and "most of them should be read" in good.message
+
+    assert summarise([40, 50, 60, 70, 80, 90, 100, 110, 120, 125], 10, 16).verdict == BORDERLINE
+    low = summarise([20, 30, 35, 40, 45, 50, 55], 7, 16)
+    assert low.verdict == LOW and "Move closer or zoom in" in low.message
+    assert summarise([], 5, 16).verdict == NO_PLATES
+    none = summarise([], 0, 16)
+    assert none.verdict == NO_VEHICLES and none.median_width_px is None and "16 sampled frames" in none.message
+    assert set(good.as_dict()) >= {"verdict", "message", "largest_width_px"}
+
+
+@needs_ffmpeg
+def test_frames_can_be_read_by_seeking_to_their_numbers(tmp_path: Path):
+    info = _test_video(tmp_path / "source.mp4", 64, 48, 12)
+    got = list(read_frames_at(info.path, [9, 2, 7, 40, -1]))
+    assert [number for number, _ in got] == [2, 7, 9]  # ascending, out-of-range numbers ignored
+    assert all(frame.shape == (48, 64, 3) for _, frame in got)
+    assert list(read_frames_at(info.path, [])) == []
+
+
+# --- travel direction from the boxes ----------------------------------------------------------------
+
+
+def _track(count: int, height_from: float, height_to: float, x_from: float, x_to: float):
+    """Boxes whose height and x-centre change evenly from the first frame to the last."""
+    boxes = []
+    for i in range(count):
+        t = i / max(count - 1, 1)
+        height = height_from + (height_to - height_from) * t
+        centre = x_from + (x_to - x_from) * t
+        boxes.append((i, (centre - 40.0, 500.0 - height, centre + 40.0, 500.0)))
+    return boxes
+
+
+def test_a_vehicle_that_grows_comes_towards_the_camera_and_one_that_shrinks_goes_away():
+    assert travel_direction(_track(30, 60, 200, 960, 960), 1920) == Direction("towards", None)
+    assert travel_direction(_track(30, 200, 60, 960, 960), 1920) == Direction("away", None)
+    assert travel_direction(_track(30, 100, 110, 960, 960), 1920) == Direction(None, None)  # 10%: not enough
+
+
+def test_sideways_travel_is_left_or_right_as_a_share_of_the_frame_width():
+    assert travel_direction(_track(30, 100, 100, 200, 800), 1920) == Direction(None, "right")
+    assert travel_direction(_track(30, 100, 100, 800, 200), 1920) == Direction(None, "left")
+    assert travel_direction(_track(30, 100, 100, 900, 1000), 1920) == Direction(None, None)  # 5% of the width
+    assert travel_direction(_track(30, 60, 200, 1500, 400), 1920) == Direction("towards", "left")
+
+
+def test_direction_uses_medians_so_one_bad_first_box_does_not_decide():
+    boxes = _track(40, 100, 100, 960, 960)
+    boxes[0] = (0, (900.0, 0.0, 1020.0, 500.0))  # a 500 px tall box in the first frame only
+    assert travel_direction(boxes, 1920) == Direction(None, None)
+    assert travel_direction(boxes[:1], 1920) == Direction(None, None)  # one box: nothing to compare
+    assert travel_direction([], 1920) == Direction(None, None)
+    strict = DirectionRules(approach_ratio=1.05)
+    assert travel_direction(_track(30, 100, 110, 960, 960), 1920, strict) == Direction("towards", None)
+
+
+def test_direction_words():
+    assert direction_label("towards", None) == "Towards camera"
+    assert direction_label("away", "left") == "Away from camera, left"
+    assert direction_label(None, "right") == "Right"
+    assert direction_label(None, None) == "Undetermined"
+    assert Direction("towards", "right").label == "Towards camera, right"
+    assert short_direction("away", None) == "Away" and short_direction(None, None) == "—"
+
+
+# --- plate outlines without the detector, and the scaled-down annotated copy ----------------------
+
+
+def _moving_track(track_id: int, count: int, start=(100.0, 100.0, 300.0, 200.0), step=10.0):
+    """One vehicle whose box moves `step` pixels right each frame."""
+    x1, y1, x2, y2 = start
+    return [[vehicle(track_id, "Car", 0.9, (x1 + i * step, y1, x2 + i * step, y2))] for i in range(count)]
+
+
+def test_plate_boxes_follow_the_vehicle_between_the_sighted_frames():
+    frames = _moving_track(7, 5)
+    # Sighted in frames 0 and 4; the plate is lower on the vehicle in frame 4 than in frame 0.
+    sightings = {7: [(4, (240.0, 180.0, 280.0, 196.0)), (0, (150.0, 160.0, 190.0, 176.0))]}
+    located = plate_boxes_by_frame(frames, sightings)
+
+    assert sorted(located) == [0, 1, 2, 3, 4]
+    assert located[0][7] == pytest.approx((150.0, 160.0, 190.0, 176.0))
+    assert located[4][7] == pytest.approx((240.0, 180.0, 280.0, 196.0))
+    # Frame 2: the vehicle box is (120, 100, 320, 200); the fractions are the midpoint of the two sightings.
+    assert located[2][7] == pytest.approx((195.0, 170.0, 235.0, 186.0))
+
+
+def test_plate_boxes_are_held_outside_the_sighted_span_and_skip_small_vehicles():
+    frames = _moving_track(3, 6)
+    frames[5] = [vehicle(3, "Car", 0.9, (500.0, 100.0, 540.0, 120.0))]  # far away: 20 px tall
+    sightings = {3: [(2, (160.0, 150.0, 200.0, 170.0)), (3, (170.0, 150.0, 210.0, 170.0))]}
+    located = plate_boxes_by_frame(frames, sightings, min_height=50)
+
+    # Before the first sighting the fractions of frame 2 are used on frame 0's box (shifted by 20 px).
+    assert located[0][3] == pytest.approx((140.0, 150.0, 180.0, 170.0))
+    # After the last sighting the fractions of frame 3 are used on frame 4's box.
+    assert located[4][3] == pytest.approx((180.0, 150.0, 220.0, 170.0))
+    assert 5 not in located  # too small to outline
+    assert plate_boxes_by_frame(frames, {}) == {}
+    assert plate_boxes_by_frame(frames, {9: [(0, (0.0, 0.0, 1.0, 1.0))]}) == {}  # never tracked
+
+
+def test_output_size_scales_only_inputs_taller_than_the_limit():
+    assert output_size(3840, 2160, 1080) == (1920, 1080, 0.5)
+    assert output_size(2560, 1440, 1080) == (1920, 1080, 0.75)
+    assert output_size(1920, 1080, 1080) == (1920, 1080, 1.0)
+    assert output_size(1280, 720, 1080) == (1280, 720, 1.0)
+    assert output_size(3840, 2160, None) == (3840, 2160, 1.0)
+    assert output_size(1000, 1000, 333)[0] % 2 == 0
+
+
+def _test_video(path: Path, width: int, height: int, frames: int, fps: int = 30) -> VideoInfo:
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", f"color=c=black:size={width}x{height}:rate={fps}",
+        "-frames:v", str(frames), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
+    ]  # fmt: skip
+    subprocess.run(command, check=True)
+    return probe_video(path)
+
+
+def _greenish(pixel) -> bool:
+    blue, green, red = (int(value) for value in pixel)
+    return green > 120 and green > red + 40 and green > blue + 40
+
+
+@needs_ffmpeg
+def test_rendered_copy_is_scaled_down_to_max_height_with_its_boxes(tmp_path: Path):
+    info = _test_video(tmp_path / "source.mp4", 128, 96, 10)
+    frames = [[vehicle(1, "Car", 0.9, (32.0, 32.0, 112.0, 88.0))] for _ in range(10)]
+    plate_boxes = {index: {1: (60.0, 70.0, 90.0, 80.0)} for index in range(10)}
+    labels = {1: PlateLabel("KL07AB1234", 0.95, True)}
+    output = tmp_path / "annotated.mp4"
+
+    render = render_annotated_video(
+        info, frames, {1: "Car"}, output, plate_labels=labels, plate_boxes=plate_boxes, max_height=48
+    )
+
+    assert (render.width, render.height, render.frame_count) == (64, 48, 10)
+    written = probe_video(output)
+    assert (written.width, written.height, written.frame_count, written.fps) == (64, 48, 10, info.fps)
+    first = next(read_frames(output))
+    assert _greenish(first[40, 16])  # the vehicle's left edge, at half scale (x 32 -> 16, y 32..88 -> 16..44)
+    assert not _greenish(first[40, 8])  # nothing drawn outside the box
+
+
+@needs_ffmpeg
+def test_rendered_copy_keeps_the_input_size_when_it_is_not_taller_than_the_limit(tmp_path: Path):
+    info = _test_video(tmp_path / "source.mp4", 128, 96, 5)
+    frames = [[vehicle(1, "Car", 0.9, (32.0, 32.0, 112.0, 88.0))] for _ in range(5)]
+    output = tmp_path / "annotated.mp4"
+    render = render_annotated_video(info, frames, {1: "Car"}, output, max_height=1080)
+    assert (render.width, render.height, render.frame_count) == (128, 96, 5)
+    written = probe_video(output)
+    assert (written.width, written.height, written.frame_count) == (128, 96, 5)
+    assert _greenish(next(read_frames(output))[60, 32])
 
 
 # --- result files ----------------------------------------------------------------------------------

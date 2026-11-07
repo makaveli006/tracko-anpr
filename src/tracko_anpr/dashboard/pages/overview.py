@@ -8,21 +8,29 @@ and an empty database shows empty states, not placeholders.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from nicegui import ui
 
-from tracko_anpr.dashboard.components.detection_dialog import image_url, show_detection, status_badge
+from tracko_anpr.dashboard.components.detection_dialog import show_detection
+from tracko_anpr.dashboard.components.detections_table import detections_table
 from tracko_anpr.dashboard.components.player import VideoPlayer
 from tracko_anpr.dashboard.components.timeline import timeline
-from tracko_anpr.dashboard.format import VEHICLE_ICONS, minutes_seconds, percent, thousands, video_time, when
+from tracko_anpr.dashboard.format import VEHICLE_ICONS, minutes_seconds, percent, thousands, when
 from tracko_anpr.dashboard.layout import frame
 from tracko_anpr.dashboard.runtime import query
 from tracko_anpr.services import overview as overview_service
-from tracko_anpr.services.overview import Overview
+from tracko_anpr.services import results
+from tracko_anpr.services.overview import RECENT_LIMIT, Overview
+from tracko_anpr.services.results import DetectionRow
 
 CATEGORY_COLOURS = {"Car": "#27C443", "Motorcycle": "#FACC15", "Bus": "#F59E0B", "Truck": "#EF5B47"}
 CHART_TEXT = "#858585"
 CHART_GRID = "#262626"
 LINE_GREEN = "#4ADE36"
+BAR_TOWARDS = "#4ADE36"  # --accent-green-bright
+BAR_AWAY = "#166522"  # --accent-green-dark
+BAR_OTHER = "#858585"  # --text-muted
 
 
 class OverviewPage:
@@ -49,6 +57,7 @@ class OverviewPage:
                     self.coverage_card()
         with ui.row().classes("w-full gap-4 no-wrap items-stretch"):
             with ui.element("div").classes("tk-card").style("flex: 3 1 0; min-width: 0"):
+                self.recent_box = ui.element("div").classes("w-full")
                 self.recent_card()
             with ui.element("div").classes("tk-card").style("flex: 2 1 0; min-width: 320px"):
                 self.over_time_card()
@@ -228,6 +237,19 @@ class OverviewPage:
     # --- the bottom row ----------------------------------------------------------------------
 
     def recent_card(self) -> None:
+        self.recent_box.clear()
+        with self.recent_box:
+            self._recent_card_body()
+
+    async def refresh_recent(self) -> None:
+        """After a correction: fetch the rows again and redraw the table (the figures do not change)."""
+        if self.data.selected is None:
+            return
+        rows = await query(results.video_detections, self.data.selected.id, limit=RECENT_LIMIT)
+        self.data = replace(self.data, recent=rows)
+        self.recent_card()
+
+    def _recent_card_body(self) -> None:
         data = self.data
         with ui.row().classes("w-full items-center justify-between no-wrap"):
             ui.label("Recent Detections").classes("tk-card-title")
@@ -238,49 +260,18 @@ class OverviewPage:
         if not data.recent:
             ui.label("No detections yet." if data.selected else "No processed video selected.").classes("tk-muted mt-2")
             return
-        with ui.element("div").classes("tk-table-wrap w-full mt-2"), ui.element("table").classes("tk-html-table"):
-            with ui.element("thead"), ui.element("tr"):
-                for heading in (
-                    "Time (hh:mm:ss)",
-                    "Track ID",
-                    "Vehicle",
-                    "Registration Number",
-                    "Confidence",
-                    "Validation",
-                    "Plate Image",
-                ):
-                    with ui.element("th"):
-                        ui.label(heading)
-            with ui.element("tbody"):
-                for row in data.recent:
-                    d = row.detection
-                    tr = ui.element("tr").classes("tk-row")
-                    tr.on("click", lambda _, pk=d.track_pk, t=d.first_seen_s: self.row_clicked(pk, t))
-                    with tr:
-                        with ui.element("td"):
-                            ui.label(video_time(d.first_seen_s)).classes("tk-mono")
-                        with ui.element("td"):
-                            ui.label(f"T{d.track_id}")
-                        with ui.element("td"), ui.row().classes("items-center gap-2 no-wrap"):
-                            ui.icon(VEHICLE_ICONS.get(d.vehicle_type, "directions_car")).classes("text-lg tk-secondary")
-                            ui.label(d.vehicle_type)
-                        with ui.element("td"):
-                            ui.label(d.registration_number or "—").classes("font-semibold tk-mono")
-                        with ui.element("td"):
-                            ui.label(f"{d.confidence:.2f}" if d.status != "not_detected" else "—").classes("tk-mono")
-                        with ui.element("td"):
-                            status_badge(d.status)
-                        with ui.element("td"):
-                            if image_url(d.plate_crop_path):
-                                ui.image(image_url(d.plate_crop_path)).classes("tk-plate-thumb")
-                            else:
-                                ui.label("—").classes("tk-muted")
+        with ui.element("div").classes("w-full mt-2"):
+            detections_table(
+                data.recent,
+                ("time", "track", "vehicle_type", "direction", "registration_number", "confidence", "status", "plate"),
+                self.row_clicked,
+            )
         ui.label("Click a row to jump the video to that moment and see the details.").classes("tk-muted text-xs mt-1")
 
-    async def row_clicked(self, track_pk: int, seconds: float) -> None:
+    async def row_clicked(self, row: DetectionRow) -> None:
         if self.player is not None:
-            self.player.seek(max(0.0, seconds - 0.5), play=False)
-        await show_detection(track_pk)
+            self.player.seek(max(0.0, row.detection.first_seen_s - 0.5), play=False)
+        await show_detection(row.detection.track_pk, on_change=self.refresh_recent)
 
     def over_time_card(self) -> None:
         ui.label("Detections Over Time").classes("tk-card-title")
@@ -291,17 +282,28 @@ class OverviewPage:
                 ui.label("No vehicles to plot")
             return
         labels = [f"{start // 60:02d}:{start % 60:02d}" for start, _ in buckets]
-        values = [count for _, count in buckets]
+        split = found.detections_by_direction or [(start, 0, 0, count) for start, count in buckets]
+
+        def bars(name: str, index: int, colour: str) -> dict:
+            return {
+                "name": name,
+                "type": "bar",
+                "stack": "vehicles",
+                "data": [row[index] for row in split],
+                "itemStyle": {"color": colour},
+                "barMaxWidth": 18,
+            }
+
         ui.echart(
             {
                 "backgroundColor": "transparent",
-                "grid": {"left": 44, "right": 16, "top": 20, "bottom": 44},
+                "grid": {"left": 44, "right": 16, "top": 28, "bottom": 44},
                 "tooltip": {
                     "trigger": "axis",
                     "backgroundColor": "#202020",
                     "borderColor": "#363636",
                     "textStyle": {"color": "#f5f5f5"},
-                    "axisPointer": {"lineStyle": {"color": "#4a4a4a"}},
+                    "axisPointer": {"type": "shadow"},
                 },
                 "xAxis": {
                     "type": "category",
@@ -324,22 +326,24 @@ class OverviewPage:
                     "axisLabel": {"color": CHART_TEXT},
                     "splitLine": {"lineStyle": {"color": CHART_GRID}},
                 },  # fmt: skip
+                "legend": {
+                    "data": ["Towards camera", "Away from camera", "Undetermined"],
+                    "top": 0,
+                    "right": 8,
+                    "textStyle": {"color": CHART_TEXT, "fontSize": 11},
+                    "itemWidth": 10,
+                    "itemHeight": 10,
+                },
                 "series": [
-                    {
-                        "type": "line",
-                        "data": values,
-                        "smooth": 0.25,
-                        "symbol": "circle",
-                        "symbolSize": 5,
-                        "lineStyle": {"color": LINE_GREEN, "width": 2},
-                        "itemStyle": {"color": LINE_GREEN},
-                        "areaStyle": {"color": "rgba(74, 222, 54, 0.12)"},
-                    }  # fmt: skip
+                    bars("Towards camera", 1, BAR_TOWARDS),
+                    bars("Away from camera", 2, BAR_AWAY),
+                    bars("Undetermined", 3, BAR_OTHER),
                 ],
             }
         ).classes("w-full").style("height: 250px")
         ui.label(
-            "New vehicles per 10-second bucket, each counted once where first seen; they add up to Total Vehicles"
+            "New vehicles per 10-second bucket by travel direction, each counted once where first seen; "
+            "they add up to Total Vehicles"
         ).classes("tk-muted text-xs")
 
 

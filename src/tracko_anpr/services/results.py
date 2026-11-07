@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from tracko_anpr.db import metrics
-from tracko_anpr.db.metrics import Detection, Summary, latest_completed_jobs
+from tracko_anpr.db.metrics import Detection, Summary, approach_filter, latest_completed_jobs
 from tracko_anpr.db.models import PlateObservation, ProcessingJob, RecognitionEvent, VehicleTrack, Video
-from tracko_anpr.services import registry
-from tracko_anpr.services.registry import RegistryRecord
+from tracko_anpr.pipeline.direction import direction_label
+from tracko_anpr.pipeline.validation import CONFIRMED, ValidationRules, correct, normalize
+from tracko_anpr.services import corrections, registry
+from tracko_anpr.services.corrections import Correction
+from tracko_anpr.services.registry import RegistryMatch
+
+RULES = ValidationRules()
+"""The pipeline's frozen thresholds, used to place the 'read' and 'confirmed' events on a track's timeline."""
 
 
 @dataclass(frozen=True)
@@ -30,6 +36,8 @@ class VideoResults:
     by_class: dict[str, int]
     by_status: dict[str, int]
     detections_over_time: list[tuple[int, int]]
+    detections_by_direction: list[tuple[int, int, int, int]]
+    """Per bucket: start, towards the camera, away from it, undetermined; they add up to `detections_over_time`."""
     timings: dict | None
     memory: dict | None
     settings: dict | None
@@ -54,6 +62,7 @@ def video_results(session: Session, video_id: int) -> VideoResults | None:
         by_class=metrics.category_breakdown(session, video_id),
         by_status=metrics.validation_breakdown(session, video_id),
         detections_over_time=metrics.detections_over_time(session, video_id),
+        detections_by_direction=metrics.detections_over_time_by_direction(session, video_id),
         timings=job.timings if job else None,
         memory=job.memory if job else None,
         settings=job.settings if job else None,
@@ -66,16 +75,28 @@ def video_results(session: Session, video_id: int) -> VideoResults | None:
 
 @dataclass(frozen=True)
 class DetectionRow:
-    """One line of a detections table, with its fictional registry match if any."""
+    """One line of a detections table, with its fictional registry match and its operator correction, if any.
+
+    `detection` is always the system's result; `correction` is what a person changed it to.
+    """
 
     detection: Detection
-    registry_match: RegistryRecord | None
+    registry_match: RegistryMatch | None
+    """Exact, or one character away ("possible", never asserted); only for confirmed numbers."""
+    correction: Correction | None = None
 
 
 def with_registry(session: Session, rows: list[Detection]) -> list[DetectionRow]:
+    """Attach the registry match (by the system's confirmed number) and the current correction to each row."""
     matches = registry.lookup_many(session, [row.registration_number for row in rows if row.status == "confirmed"])
+    corrected = corrections.current_corrections(session, [row.track_pk for row in rows])
     return [
-        DetectionRow(row, matches.get(row.registration_number) if row.status == "confirmed" else None) for row in rows
+        DetectionRow(
+            row,
+            matches.get(row.registration_number) if row.status == "confirmed" else None,
+            corrected.get(row.track_pk),
+        )
+        for row in rows
     ]
 
 
@@ -101,9 +122,77 @@ class Observation:
 
 
 @dataclass(frozen=True)
+class Event:
+    """One step in a vehicle's life on the video, in the manner of a New / Update / Lost event stream.
+
+    `time_s` and `frame` are video time; a correction happens at a wall-clock moment instead (`at`).
+    """
+
+    kind: str
+    """new | read | confirmed | corrected | lost"""
+    time_s: float | None
+    frame: int | None
+    text: str
+    at: datetime | None = None
+
+
+def lifecycle(
+    track: VehicleTrack, event: RecognitionEvent, observations: list[PlateObservation], made: list[Correction]
+) -> list[Event]:
+    """Reconstruct the events from what is stored: nothing is recorded at processing time beyond the rows.
+
+    - new: the track's first frame.
+    - read: the first confident reading, then every later reading with a different text (the "updates").
+    - confirmed: the observation at which the agreeing readings of the final number reached the
+      validation rules' minimum, with one of them confident enough; only for confirmed tracks.
+    - lost: the last frame, with the travel direction.
+    - corrected: each operator correction, oldest first, at its wall-clock time.
+    """
+    direction = direction_label(track.approach, track.sideways)
+    events = [Event("new", track.first_seen_s, track.first_frame, f"First seen · {track.vehicle_type}")]
+    seen: set[str] = set()
+    agreeing, best = 0, 0.0
+    confirmed_at: Event | None = None
+    number = event.registration_number if event.status == CONFIRMED else None
+    confirmed_text = f"Number confirmed {number} ({event.confidence:.2f})"
+    for o in observations:
+        if not o.text or o.unreadable or o.ocr_confidence < RULES.min_reading_confidence:
+            continue
+        if o.text not in seen:
+            seen.add(o.text)
+            events.append(Event("read", o.time_s, o.frame, f"Read as {o.text} ({o.ocr_confidence:.2f})"))
+        if number is not None and confirmed_at is None and _same_number(o.text, number):
+            agreeing, best = agreeing + 1, max(best, o.ocr_confidence)
+            if agreeing >= RULES.min_observations and best >= RULES.confirm_confidence:
+                confirmed_at = Event("confirmed", o.time_s, o.frame, confirmed_text)
+    if number is not None and confirmed_at is None:  # agreed through look-alike correction only: place it at the end
+        confirmed_at = Event("confirmed", track.last_seen_s, track.last_frame, confirmed_text)
+    if confirmed_at is not None:
+        events.append(confirmed_at)
+    events.append(Event("lost", track.last_seen_s, track.last_frame, f"Last seen · {direction}"))
+    events.sort(key=lambda e: (e.frame if e.frame is not None else 0, _KIND_ORDER.get(e.kind, 9)))
+    for c in reversed(made):  # oldest first
+        changed = " / ".join(filter(None, [c.corrected_number, c.corrected_type]))
+        who = f" by {c.corrected_by}" if c.corrected_by else ""
+        events.append(Event("corrected", None, None, f"Corrected to {changed}{who}", at=c.created_at))
+    return events
+
+
+_KIND_ORDER = {"new": 0, "read": 1, "confirmed": 2, "lost": 3}
+
+
+def _same_number(text: str, number: str) -> bool:
+    """A reading counts for the final number as written or after the validator's look-alike correction."""
+    if text == number:
+        return True
+    corrected = correct(normalize(text))
+    return corrected is not None and corrected[0] == number
+
+
+@dataclass(frozen=True)
 class DetectionDetail:
     detection: Detection
-    registry_match: RegistryRecord | None
+    registry_match: RegistryMatch | None
     frames_seen: int
     first_frame: int
     last_frame: int
@@ -113,6 +202,12 @@ class DetectionDetail:
     share: float
     observations: list[Observation]
     """Every plate examined for this track, in frame order: the multi-frame evidence."""
+    correction: Correction | None = None
+    """The current operator correction, if any; the system's result above is unchanged by it."""
+    corrections: list[Correction] = field(default_factory=list)
+    """Every correction made to this track, newest first."""
+    events: list[Event] = field(default_factory=list)
+    """The track's life on the video: first seen, readings, confirmed, corrected, last seen (see `lifecycle`)."""
 
 
 def detection_detail(session: Session, track_pk: int) -> DetectionDetail | None:
@@ -125,7 +220,11 @@ def detection_detail(session: Session, track_pk: int) -> DetectionDetail | None:
     observations = session.scalars(
         select(PlateObservation).where(PlateObservation.track_pk == track.id).order_by(PlateObservation.frame)
     ).all()
+    made = corrections.history(session, track.id)
     return DetectionDetail(
+        correction=made[0] if made else None,
+        corrections=made,
+        events=lifecycle(track, event, list(observations), made),
         detection=detection,
         registry_match=registry.lookup(session, event.registration_number) if event.status == "confirmed" else None,
         frames_seen=track.frames_seen,
@@ -157,6 +256,7 @@ def detection_detail(session: Session, track_pk: int) -> DetectionDetail | None:
 
 SORTABLE = {
     "time": (VehicleTrack.video_id, VehicleTrack.first_seen_s),
+    "direction": (VehicleTrack.approach, VehicleTrack.sideways),
     "video": (Video.name, VehicleTrack.first_seen_s),
     "track": (VehicleTrack.track_id,),
     "vehicle_type": (VehicleTrack.vehicle_type,),
@@ -174,12 +274,19 @@ class HistoryPage:
     limit: int
 
 
-def _history_query(video_id: int | None, status: str | None, vehicle_type: str | None, search: str | None) -> Select:
-    query = (
+def _history_query(
+    video_id: int | None,
+    status: str | None,
+    vehicle_type: str | None,
+    search: str | None,
+    approach: str | None = None,
+) -> Select:
+    query = approach_filter(
         select(VehicleTrack, RecognitionEvent, Video.name)
         .join(RecognitionEvent, RecognitionEvent.track_pk == VehicleTrack.id)
         .join(Video, Video.id == VehicleTrack.video_id)
-        .where(VehicleTrack.job_id.in_(latest_completed_jobs(video_id)), VehicleTrack.counts_as_vehicle)
+        .where(VehicleTrack.job_id.in_(latest_completed_jobs(video_id)), VehicleTrack.counts_as_vehicle),
+        approach,
     )
     if status:
         query = query.where(RecognitionEvent.status == status)
@@ -200,9 +307,10 @@ def detection_history(
     descending: bool = True,
     offset: int = 0,
     limit: int = 50,
+    approach: str | None = None,
 ) -> HistoryPage:
     """Counted vehicles across all processed videos (or one), filtered, sorted and paged."""
-    query = _history_query(video_id, status, vehicle_type, search)
+    query = _history_query(video_id, status, vehicle_type, search, approach)
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
     columns = SORTABLE.get(sort, SORTABLE["time"])
     ordered = query.order_by(*(c.desc() if descending else c.asc() for c in columns), VehicleTrack.id)
@@ -214,21 +322,34 @@ def detection_history(
 def export_history_csv(session: Session, **filters) -> str:
     """The same rows as `detection_history`, all of them, as CSV text."""
     query = _history_query(
-        filters.get("video_id"), filters.get("status"), filters.get("vehicle_type"), filters.get("search")
+        filters.get("video_id"),
+        filters.get("status"),
+        filters.get("vehicle_type"),
+        filters.get("search"),
+        filters.get("approach"),
     ).order_by(Video.name, VehicleTrack.first_seen_s, VehicleTrack.track_id)
     rows = with_registry(session, [_detection(t, e, n) for t, e, n in session.execute(query).all()])
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(
-        ["video", "track", "vehicle_type", "first_seen_s", "last_seen_s", "registration_number", "status"]
-        + ["confidence", "agreeing_frames", "readings", "reason", "demo_registry_match"]
+        ["video", "track", "vehicle_type", "first_seen_s", "last_seen_s", "direction", "registration_number"]
+        + ["status", "confidence", "agreeing_frames", "readings", "reason", "demo_registry_match"]
+        + ["demo_registry_possible"]
+        + ["corrected_number", "corrected_type", "corrected_by", "corrected_at"]
     )
     for row in rows:
-        d = row.detection
+        d, c = row.detection, row.correction
+        corrected = (
+            [c.corrected_number or "", c.corrected_type or "", c.corrected_by, c.created_at.isoformat()]
+            if c
+            else ["", "", "", ""]
+        )
         writer.writerow(
-            [d.video_name, f"T{d.track_id}", d.vehicle_type, d.first_seen_s, d.last_seen_s, d.registration_number or ""]
-            + [d.status, f"{d.confidence:.4f}", d.support, d.readings, d.reason]
-            + [row.registry_match.owner_name if row.registry_match else ""]
+            [d.video_name, f"T{d.track_id}", d.vehicle_type, d.first_seen_s, d.last_seen_s, d.direction_label]
+            + [d.registration_number or "", d.status, f"{d.confidence:.4f}", d.support, d.readings, d.reason]
+            + [m.record.owner_name if (m := row.registry_match) and m.exact else ""]
+            + [m.record.registration_number if m and m.possible else ""]
+            + corrected
         )
     return buffer.getvalue()
 
@@ -252,4 +373,6 @@ def _detection(track: VehicleTrack, event: RecognitionEvent, video_name: str) ->
         reason=event.reason,
         vehicle_crop_path=track.vehicle_crop_path,
         plate_crop_path=event.plate_crop_path,
+        approach=track.approach,
+        sideways=track.sideways,
     )

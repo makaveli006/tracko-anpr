@@ -20,7 +20,17 @@ from tracko_anpr.api.app import EngineDep, SessionDep, SettingsDep
 from tracko_anpr.config import Settings
 from tracko_anpr.db import metrics
 from tracko_anpr.db.models import Video
-from tracko_anpr.services import analytics, app_settings, files, jobs, readiness, registry, results, videos
+from tracko_anpr.services import (
+    analytics,
+    app_settings,
+    corrections,
+    files,
+    jobs,
+    readiness,
+    registry,
+    results,
+    videos,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -109,6 +119,15 @@ def process_video(video_id: int, session: Annotated[Session, SessionDep]):
     except jobs.VideoNotFound as error:
         raise _not_found(str(error)) from error
     return job
+
+
+@router.post("/videos/{video_id}/plate-check", response_model=videos.VideoSummary, status_code=202)
+def request_plate_check(video_id: int, session: Annotated[Session, SessionDep]):
+    """Ask the worker to measure the plate sizes of a video (a few sampled frames; results in `plate_check`)."""
+    video = videos.request_plate_check(session, video_id)
+    if video is None:
+        raise _not_found(f"No video with id {video_id}.")
+    return video
 
 
 @router.get("/videos/{video_id}/results", response_model=results.VideoResults)
@@ -218,8 +237,11 @@ def detection_history(
     descending: bool = True,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=1000),
+    approach: str | None = Query(None, pattern="^(towards|away|none)$"),
 ):
-    return results.detection_history(session, video_id, status, vehicle_type, search, sort, descending, offset, limit)
+    return results.detection_history(
+        session, video_id, status, vehicle_type, search, sort, descending, offset, limit, approach
+    )
 
 
 @router.get("/detections/export.csv")
@@ -229,9 +251,10 @@ def export_detections(
     status: str | None = None,
     vehicle_type: str | None = None,
     search: str | None = None,
+    approach: str | None = Query(None, pattern="^(towards|away|none)$"),
 ):
     text = results.export_history_csv(
-        session, video_id=video_id, status=status, vehicle_type=vehicle_type, search=search
+        session, video_id=video_id, status=status, vehicle_type=vehicle_type, search=search, approach=approach
     )
     headers = {"Content-Disposition": 'attachment; filename="detections.csv"'}
     return PlainTextResponse(text, media_type="text/csv", headers=headers)
@@ -243,6 +266,44 @@ def detection_detail(track_pk: int, session: Annotated[Session, SessionDep]):
     if found is None:
         raise _not_found(f"No detection with id {track_pk}.")
     return found
+
+
+@router.put("/detections/{track_pk}/correction", response_model=results.DetectionDetail)
+def correct_detection(
+    track_pk: int,
+    session: Annotated[Session, SessionDep],
+    number: Annotated[str | None, Body(embed=True)] = None,
+    vehicle_type: Annotated[str | None, Body(embed=True)] = None,
+    corrected_by: Annotated[str, Body(embed=True)] = "",
+    note: Annotated[str, Body(embed=True)] = "",
+):
+    """Record an operator's correction of the number and/or type. The system's result is kept beside it."""
+    try:
+        corrections.save_correction(session, track_pk, number, vehicle_type, corrected_by, note)
+    except corrections.CorrectionError as error:
+        if "not in the database" in str(error):
+            raise _not_found(str(error)) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return results.detection_detail(session, track_pk)
+
+
+@router.delete("/detections/{track_pk}/correction", response_model=results.DetectionDetail)
+def undo_correction(track_pk: int, session: Annotated[Session, SessionDep]):
+    """Remove the newest correction of a detection."""
+    if results.detection_detail(session, track_pk) is None:
+        raise _not_found(f"No detection with id {track_pk}.")
+    if not corrections.undo_latest(session, track_pk):
+        raise HTTPException(status_code=400, detail="This detection has no correction to undo.")
+    return results.detection_detail(session, track_pk)
+
+
+@router.get("/corrections")
+def list_corrections(session: Annotated[Session, SessionDep], video_id: int | None = None):
+    """Operators' current corrections over the latest runs, with the summary. The other figures ignore them."""
+    return {
+        "summary": corrections.summary(session, video_id),
+        "corrections": corrections.list_corrections(session, video_id),
+    }
 
 
 @router.get("/images/{relative_path:path}")
@@ -258,15 +319,89 @@ def image(relative_path: str, settings: Annotated[Settings, SettingsDep]):
 # --- demo registry and settings -----------------------------------------------------------------
 
 
-@router.get("/registry")
-def list_registry(session: Annotated[Session, SessionDep], search: str | None = None):
-    return {"disclaimer": registry.DISCLAIMER, "entries": registry.list_entries(session, search)}
+@router.get("/registry", response_model=registry.RegistryList)
+def list_registry(
+    session: Annotated[Session, SessionDep],
+    search: str | None = None,
+    list_name: Annotated[str | None, Query(alias="list")] = None,
+):
+    return registry.RegistryList(registry.DISCLAIMER, registry.list_entries(session, search, list_name=list_name))
 
 
-@router.get("/registry/{registration_number}")
+@router.get("/registry/lists", response_model=list[registry.ListSummary])
+def registry_lists(session: Annotated[Session, SessionDep]):
+    return [registry.ListSummary(name, count) for name, count in registry.lists(session)]
+
+
+@router.get("/registry/import-template.csv")
+def registry_import_template():
+    headers = {"Content-Disposition": 'attachment; filename="registry-template.csv"'}
+    return PlainTextResponse(registry.IMPORT_TEMPLATE, media_type="text/csv", headers=headers)
+
+
+@router.post("/registry/import", response_model=registry.ImportOutcome)
+def import_registry(
+    session: Annotated[Session, SessionDep],
+    file: Annotated[UploadFile, File()],
+    added_by: Annotated[str | None, Form()] = None,
+):
+    """Create or update FICTIONAL records from a CSV (see /api/registry/import-template.csv for the columns)."""
+    text = file.file.read().decode("utf-8-sig", errors="replace")
+    try:
+        return registry.import_csv(session, text, file.filename or "upload.csv", added_by or "")
+    except registry.RegistryError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/registry/lists", response_model=registry.RegistryRecord, status_code=201)
+def add_to_registry_list(
+    session: Annotated[Session, SessionDep],
+    number: Annotated[str, Body(embed=True)],
+    list_name: Annotated[str, Body(embed=True)],
+    description: Annotated[str, Body(embed=True)] = "",
+    vehicle_type: Annotated[str | None, Body(embed=True)] = None,
+    added_by: Annotated[str, Body(embed=True)] = "",
+):
+    """Put a number in a named list: a FICTIONAL record is created for it if none exists."""
+    try:
+        return registry.add_to_list(session, number, list_name, description, vehicle_type, added_by)
+    except registry.RegistryError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.put("/registry/{record_id}", response_model=registry.RegistryRecord)
+def update_registry_record(
+    record_id: int,
+    session: Annotated[Session, SessionDep],
+    description: Annotated[str | None, Body(embed=True)] = None,
+    list_name: Annotated[str | None, Body(embed=True)] = None,
+):
+    found = registry.update_record(session, record_id, description, list_name)
+    if found is None:
+        raise _not_found(f"No registry record with id {record_id}.")
+    return found
+
+
+@router.delete("/registry/{record_id}/list", response_model=registry.RegistryRecord)
+def remove_registry_record_from_list(record_id: int, session: Annotated[Session, SessionDep]):
+    found = registry.remove_from_list(session, record_id)
+    if found is None:
+        raise _not_found(f"No registry record with id {record_id}.")
+    return found
+
+
+@router.get("/registry/{registration_number}", response_model=registry.RegistryLookup)
 def registry_lookup(registration_number: str, session: Annotated[Session, SessionDep]):
-    record = registry.lookup(session, registration_number)
-    return {"disclaimer": registry.DISCLAIMER, "match": record is not None, "record": record}
+    """Exact match, or a possible match when a record is one character away (never asserted), or neither."""
+    found = registry.lookup(session, registration_number)
+    return registry.RegistryLookup(
+        disclaimer=registry.DISCLAIMER,
+        match=found is not None and found.exact,
+        possible=found is not None and found.possible,
+        distance=found.distance if found else None,
+        difference=found.difference if found and found.possible else None,
+        record=found.record if found else None,
+    )
 
 
 @router.get("/settings", response_model=list[app_settings.SettingItem])

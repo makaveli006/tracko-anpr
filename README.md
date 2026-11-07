@@ -24,7 +24,7 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
    uv run tracko-anpr worker
    ```
 
-   The first job after a start takes about 20 seconds longer while the plate reader loads.
+   The first job after a start takes about 20 seconds longer while the plate reader loads, and the first plate-size check about 30 seconds longer while its two detectors load.
 
 3. **Web app** (a second terminal):
 
@@ -36,7 +36,11 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
 
    Health check without a browser: `curl -s http://localhost:8080/api/system/status` — `"ready": true`.
 
-5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer three processed videos in its selector (`clear`, `rope`, `zoomed-in`; 251 vehicles and 48 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 10 to 25 minutes.
+5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer exactly the two demo videos in its selector (`clear` and `zoomed-in`; 244 vehicles and 46 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 2.5 to 11 minutes, a 1080p one about twice its length.
+
+How long it takes (rehearsed 2026-11-07 from `wsl --shutdown`): the container is back on its own within 10 seconds of the first WSL command, the worker is ready a few seconds after it is started, and the status API says ready as soon as the web app is up; the whole cold start is under a minute. A restore takes about 15 seconds. A live upload of a 20-second 1080p clip showed its plate-size verdict after 50 seconds (cold worker) and finished processing 70 seconds after "Process Video".
+
+**Recording new videos:** follow [RECORDING_GUIDE.md](RECORDING_GUIDE.md) — plate at least 130 px wide, camera in line with the traffic, 1080p at 30 fps. It is the biggest lever on how many plates get read.
 
 Nothing on any page is fetched from the internet (fonts, charts and icons are served by the app), so the demo works with the network unplugged. The database does not need the network either.
 
@@ -61,6 +65,7 @@ Stop the worker and the web app before restoring. The source videos in `videos/`
 | Browser cannot reach localhost:8080 | Is `tracko-anpr web` running? Try `http://127.0.0.1:8080/`; failing that, the WSL address from `hostname -I` inside WSL. |
 | An upload stays "Queued" | The worker is not running, or is busy with an earlier job; `uv run tracko-anpr jobs` shows the queue. |
 | A job is "Failed" | The reason is on the Upload page and in `uv run tracko-anpr jobs`; a damaged file says so. |
+| The plate-size check stays at "waiting for the worker" | The worker is not running (step 2); it serves checks before jobs, so a running worker answers within a minute. |
 
 ## Usage
 
@@ -76,7 +81,7 @@ This runs the whole pipeline over an MP4: vehicle detection and tracking, plate 
 
 Results go under `storage/`, in folders named after the video:
 
-- `storage/processed/<name>/annotated.mp4` — the video with every vehicle boxed and labelled, plates outlined in amber, and each number shown as confirmed (`KL10AB1234 (0.97)`) or `unconfirmed`. Same resolution, frame rate and frame count as the input, with the original audio.
+- `storage/processed/<name>/annotated.mp4` — the video with every vehicle boxed and labelled, plates outlined in amber, and each number shown as confirmed (`KL10AB1234 (0.97)`) or `unconfirmed`. Same frame rate and frame count as the input, with the original audio; inputs above 1080p are scaled down to 1080p for playback (the original video is untouched).
 - `storage/processed/<name>/results.json` — one record per track (type, when it was seen, plate decision and the reason for it), plus the summary, timings and settings.
 - `storage/processed/<name>/detections.csv` — one row per vehicle per frame.
 - `storage/processed/<name>/plates.csv` — one row per plate examined, with what the reader made of it.
@@ -84,7 +89,7 @@ Results go under `storage/`, in folders named after the video:
 
 The run is also recorded in the database (see "Database" under Setup): a `videos` row for the file, a `processing_jobs` row for this run, and one row per track, plate examined and plate decision. `uv run tracko-anpr db-status` shows what is stored and the overall figures.
 
-Options: `--max-seconds N` processes only the first N seconds; `--no-video` skips the annotated video; `--name NAME` chooses the folder name; `--no-db` writes files only. Processing the same video again replaces its earlier result files and adds a new job to the same video; the dashboard shows the latest.
+Options: `--max-seconds N` processes only the first N seconds; `--no-video` skips the annotated video; `--name NAME` chooses the folder name; `--no-db` writes files only. `uv run tracko-anpr check <video.mp4>` runs only the plate-size check (24 sampled frames, about half a minute) and says whether the plates are big enough to read, without processing anything. Processing the same video again replaces its earlier result files and adds a new job to the same video; the dashboard shows the latest.
 
 A 2-minute clip takes about three and a half minutes at 1080p and up to eight and a half at 2K; a full-length video takes roughly two to four times its own length (the table is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`). The rules that decide what counts as a vehicle and when a number is confirmed are in section 10 of `ARCHITECTURE.md`, and the settings are frozen as of Phase 7.
 
@@ -110,7 +115,7 @@ uv run tracko-anpr web
 
 This serves the REST API and the dashboard in one process on `http://localhost:8080` (the API documentation is at `/api/docs`). A worker must be running as well for uploads to be processed; the status endpoint `/api/system/status` says what is and is not ready. The host and port come from `TRACKO_WEB_HOST` and `TRACKO_WEB_PORT` in `.env` (defaults `0.0.0.0` and `8080`, so a browser on Windows reaches the app inside WSL at `localhost:8080`).
 
-Open `http://localhost:8080/upload` to upload an MP4 and process it: the page shows the file's details, queues the job for the worker, and follows the seven stages live until the annotated video is ready. The status panel at the bottom of the sidebar says whether the database, a worker, the models and the reader are all there. The Overview at `http://localhost:8080/` shows a processed video: the five summary cards (for that video or all videos), the player with the Original / Annotated switch, the processing timeline, the category donut, recognition coverage, the recent detections (click a row to jump the video there and see the evidence) and detections over time. Video Analysis shows one video large with every tracked vehicle; Detection History searches, filters, sorts and exports every recognised plate across videos; Demo Registry holds the fictional records (generate them with `uv run tracko-anpr seed-registry`; the page says "Demonstration Data Only"); Analytics has the distributions, coverage, activity, timing and confidence; Settings shows the frozen configuration.
+Open `http://localhost:8080/upload` to upload an MP4 and process it: the page shows the file's details and, within about half a minute, a **plate-size check** (the worker samples a few frames and says how wide the plates are and whether they are big enough to read; size only), queues the job for the worker, and follows the seven stages live until the annotated video is ready. The status panel at the bottom of the sidebar says whether the database, a worker, the models and the reader are all there. The Overview at `http://localhost:8080/` shows a processed video: the five summary cards (for that video or all videos), the player with the Original / Annotated switch, the processing timeline, the category donut, recognition coverage, the recent detections (click a row to jump the video there and see the evidence) and detections over time. Click any detection to see its evidence and its **Events** (first seen, each reading, number confirmed, corrections, last seen with the travel direction); the same dialog has **Correct this detection**, where a wrong number or vehicle type can be fixed (the system's result is kept beside the correction and the figures do not change; corrections export with Detection History for later evaluation). Video Analysis shows one video large with every tracked vehicle; Detection History searches, filters (including by travel direction: towards or away from the camera), sorts and exports every recognised plate across videos; Demo Registry holds the fictional records (generate them with `uv run tracko-anpr seed-registry`; the page says "Demonstration Data Only"; a record one character away from a confirmed number is shown as a "Possible match" in amber, never as a match; a recognised number can be added to a named list with a description, records can be imported from a CSV, and "Copy link" copies the address of a search); Analytics has the distributions, coverage, activity, timing and confidence; Settings shows the frozen configuration.
 
 ### Detect and track vehicles
 
@@ -120,7 +125,7 @@ uv run tracko-anpr track videos/clear.mp4
 
 This runs YOLO26m with the TrackTrack tracker over an MP4 and writes three files to `storage/processed/`:
 
-- `<name>_annotated.mp4` — the video with a box and a label such as `#T14 Motorcycle (0.63)` on every tracked vehicle, at the same resolution, frame rate and frame count as the input, with the original audio.
+- `<name>_annotated.mp4` — the video with a box and a label such as `#T14 Motorcycle (0.63)` on every tracked vehicle, at the same resolution, frame rate and frame count as the input, with the original audio (`track` keeps the input size; `process` scales the annotated copy down to 1080p).
 - `<name>_detections.csv` — one row per vehicle per frame, with its box in original-frame pixels.
 - `<name>_tracks.json` — one summary per track, plus the settings used, timings, speed and memory.
 
