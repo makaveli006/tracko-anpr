@@ -138,7 +138,8 @@ def test_an_mp4_that_is_not_really_a_video_is_refused_and_not_kept(client, setti
     response = client.post("/api/videos", files={"file": ("fake.mp4", b"not a video at all", "video/mp4")})
     assert response.status_code == 400
     assert "could not be read as a video" in response.json()["detail"]
-    assert not any(settings.uploads_dir.glob("*")) if settings.uploads_dir.exists() else True
+    assert not list(settings.uploads_dir.glob("*.mp4"))
+    assert not list((settings.uploads_dir / ".incoming").glob("*"))  # the part file is gone too
 
 
 def test_an_empty_upload_is_refused(client):
@@ -354,3 +355,21 @@ def test_settings_show_the_frozen_pipeline_values_and_remember_changes(client):
     item = next(i for i in changed if i["key"] == "vehicle_image_size")
     assert item["value"] == 1280 and item["default"] == 1536 and item["updated_at"] is not None
     assert client.put("/api/settings/no_such_setting", json={"value": 1}).status_code == 404
+
+
+# --- the dashboard mounts on the same app -------------------------------------------------------
+
+
+def test_the_dashboard_pages_and_theme_are_served_from_the_same_process(settings, engine):
+    # NiceGUI can be mounted once per process, so this is the one test that mounts it.
+    with TestClient(create_app(settings, engine, dashboard=True)) as client:
+        for path in ("/", "/upload", "/analysis", "/history", "/registry", "/analytics", "/settings"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert "Vehicle ANPR POC" in response.text
+        theme = client.get("/dashboard-static/theme.css")
+        assert theme.status_code == 200 and "--accent-green: #36d428" in theme.text
+        assert "#5898d4" not in theme.text  # Quasar's default blue never reaches the page
+        font = client.get("/dashboard-static/fonts/InterVariable.woff2")
+        assert font.status_code == 200 and len(font.content) > 100_000
+        assert client.get("/api/system/status").status_code == 200  # the API is still there

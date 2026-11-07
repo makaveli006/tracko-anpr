@@ -50,7 +50,7 @@ uv run tracko-anpr web
 
 This serves the REST API and the dashboard in one process on `http://localhost:8080` (the API documentation is at `/api/docs`). A worker must be running as well for uploads to be processed; the status endpoint `/api/system/status` says what is and is not ready. The host and port come from `TRACKO_WEB_HOST` and `TRACKO_WEB_PORT` in `.env` (defaults `0.0.0.0` and `8080`, so a browser on Windows reaches the app inside WSL at `localhost:8080`).
 
-The dashboard pages are built in the following phases; until then `/` is a placeholder.
+Open `http://localhost:8080/upload` to upload an MP4 and process it: the page shows the file's details, queues the job for the worker, and follows the seven stages live until the annotated video is ready. The status panel at the bottom of the sidebar says whether the database, a worker, the models and the reader are all there. The Overview and the other pages are built in the following phases.
 
 ### Detect and track vehicles
 

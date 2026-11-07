@@ -1,0 +1,227 @@
+/* tracko-anpr dashboard theme: the design tokens from DESIGN/DASHBOARD_DESIGN.md section 18.
+   Every colour in the dashboard comes from here. Black, graphite, white, gray, green, amber;
+   never blue, purple or violet. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/dashboard-static/fonts/InterVariable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/dashboard-static/fonts/InterVariable-Italic.woff2") format("woff2");
+}
+
+:root {
+  --bg-main: #080808;
+  --bg-sidebar: #050505;
+  --bg-header: #090909;
+  --bg-card: #141414;
+  --bg-card-2: #191919;
+  --bg-elevated: #202020;
+  --bg-card-hover: #202020;
+  --bg-active-nav: #262626;
+  --bg-table-header: #242424;
+  --border-color: #363636;
+  --divider: #292929;
+
+  --text-primary: #f5f5f5;
+  --text-secondary: #b0b0b0;
+  --text-muted: #858585;
+
+  --accent-green: #36d428;
+  --accent-green-dark: #166522;
+  --accent-green-bright: #4ade36;
+  --accent-amber: #facc15;
+  --accent-orange: #f59e0b;
+  --accent-red: #ef4444;
+
+  --radius-card: 12px;
+  --radius-small: 8px;
+  --header-height: 62px;
+  --sidebar-width: 210px;
+  --page-padding: 16px;
+  --card-gap: 14px;
+}
+
+html, body, .q-layout, .q-page, .q-page-container {
+  background: var(--bg-main) !important;
+  color: var(--text-primary);
+}
+body, .q-field, .q-table, .q-btn, .q-item {
+  font-family: "Inter", "Segoe UI", Roboto, system-ui, sans-serif;
+}
+.nicegui-content {
+  padding: var(--page-padding);
+  gap: var(--card-gap);
+}
+
+/* ---- header ------------------------------------------------------------------------------- */
+.q-header.tk-header {
+  background: var(--bg-header) !important;
+  border-bottom: 1px solid var(--divider);
+  min-height: var(--header-height);
+  height: var(--header-height);
+  background-image:
+    linear-gradient(90deg, rgba(9, 9, 9, 1) 0%, rgba(9, 9, 9, 0.96) 40%, rgba(9, 9, 9, 0.82) 100%),
+    repeating-linear-gradient(90deg, #121212 0 18px, #0d0d0d 18px 20px);
+}
+.tk-app-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: var(--accent-green-dark);
+  display: flex; align-items: center; justify-content: center;
+  color: #ffffff;
+}
+.tk-app-title { font-size: 22px; font-weight: 700; color: #ffffff; line-height: 1.1; }
+.tk-app-subtitle { font-size: 12px; color: var(--text-secondary); }
+.tk-badge {
+  border: 1px solid var(--border-color); border-radius: 999px;
+  background: var(--bg-elevated); color: #ffffff;
+  padding: 6px 14px; font-size: 13px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.tk-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-green); display: inline-block; }
+.tk-dot.amber { background: var(--accent-amber); }
+.tk-dot.red { background: var(--accent-red); }
+.tk-dot.gray { background: var(--text-muted); }
+
+/* ---- sidebar ------------------------------------------------------------------------------ */
+.q-drawer.tk-sidebar, .q-drawer.tk-sidebar .q-drawer__content {
+  background: var(--bg-sidebar) !important;
+  border-right: 1px solid var(--divider);
+}
+.tk-nav { display: flex; flex-direction: column; gap: 4px; padding: 12px 6px; }
+.tk-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 8px 10px 10px; border-radius: var(--radius-small);
+  color: var(--text-secondary); text-decoration: none; white-space: nowrap;
+  border-left: 4px solid transparent; font-size: 14px; font-weight: 500;
+}
+.tk-nav-item .q-icon { color: var(--text-muted); font-size: 20px; }
+.tk-nav-item:hover { background: var(--bg-card); color: var(--text-primary); }
+.tk-nav-item.active {
+  background: var(--bg-active-nav); color: #ffffff;
+  border-left-color: var(--accent-green-bright);
+}
+.tk-nav-item.active .q-icon { color: var(--accent-green); }
+
+.tk-status {
+  margin: 8px; padding: 12px; border-radius: 10px;
+  background: var(--bg-card); border: 1px solid var(--border-color);
+  font-size: 12px; color: var(--text-secondary);
+}
+.tk-status-title { color: #ffffff; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.tk-status-row { display: flex; gap: 8px; margin-top: 6px; line-height: 1.35; }
+.tk-status-row .k { color: var(--text-muted); min-width: 48px; }
+.tk-status-row .v { color: var(--text-secondary); }
+.tk-status-problem { color: var(--accent-amber); margin-top: 6px; line-height: 1.35; }
+
+/* ---- cards and text ----------------------------------------------------------------------- */
+.tk-card {
+  background: var(--bg-card); border: 1px solid var(--border-color);
+  border-radius: var(--radius-card); padding: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.tk-card-title { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+.tk-page-title { font-size: 28px; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
+.tk-page-subtitle { font-size: 15px; color: var(--text-secondary); }
+.tk-muted { color: var(--text-muted); }
+.tk-secondary { color: var(--text-secondary); }
+.tk-green { color: var(--accent-green); }
+.tk-amber { color: var(--accent-amber); }
+.tk-red { color: var(--accent-red); }
+.tk-mono { font-variant-numeric: tabular-nums; }
+
+/* ---- buttons: dark green with white text, never white on bright green --------------------- */
+.q-btn.tk-primary {
+  background: var(--accent-green-dark) !important; color: #ffffff !important;
+  border-radius: var(--radius-small); text-transform: none; font-weight: 600; padding: 8px 18px;
+}
+.q-btn.tk-primary:disabled { opacity: 0.45; }
+.q-btn.tk-secondary {
+  background: var(--bg-elevated) !important; color: var(--text-primary) !important;
+  border: 1px solid var(--border-color); border-radius: var(--radius-small); text-transform: none; font-weight: 500;
+}
+.q-btn.tk-link { color: var(--accent-green) !important; text-transform: none; font-weight: 600; }
+
+/* segmented control: charcoal inactive, dark green active */
+.tk-segmented { display: inline-flex; gap: 6px; }
+.tk-segmented .q-btn {
+  background: var(--bg-elevated) !important; color: #ffffff !important;
+  border: 1px solid var(--border-color); border-radius: var(--radius-small);
+  text-transform: none; font-weight: 500; padding: 6px 14px;
+}
+.tk-segmented .q-btn.active { background: var(--accent-green-dark) !important; border-color: var(--accent-green-dark); }
+
+/* banners */
+.tk-banner { border-radius: var(--radius-small); padding: 8px 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.tk-banner.green { background: var(--accent-green-dark); color: #ffffff; }
+.tk-banner.amber { background: #3d3410; color: var(--accent-amber); border: 1px solid #5b4d12; }
+.tk-banner.red { background: #3a1414; color: var(--accent-red); border: 1px solid #5a1f1f; }
+.tk-banner.gray { background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-color); }
+
+/* ---- processing timeline ------------------------------------------------------------------ */
+.tk-timeline { display: flex; flex-direction: column; margin-top: 8px; }
+.tk-stage { display: grid; grid-template-columns: 22px 1fr; column-gap: 12px; min-height: 44px; }
+.tk-stage-marker { display: flex; flex-direction: column; align-items: center; }
+.tk-stage-marker .q-icon { font-size: 20px; }
+.tk-stage-line { flex: 1; width: 2px; background: var(--divider); margin-top: 2px; }
+.tk-stage:last-child .tk-stage-line { display: none; }
+.tk-stage-name { color: var(--text-primary); font-size: 13px; font-weight: 500; line-height: 1.2; }
+.tk-stage-detail { color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+.tk-stage.done .q-icon { color: var(--accent-green); }
+.tk-stage.running .q-icon { color: var(--accent-amber); }
+.tk-stage.pending .q-icon { color: #4a4a4a; }
+.tk-stage.failed .q-icon { color: var(--accent-red); }
+.tk-stage.running .tk-stage-detail { color: var(--accent-amber); }
+
+/* ---- upload ------------------------------------------------------------------------------- */
+.tk-dropzone .q-uploader {
+  background: #151515 !important; border: 2px dashed #404040; border-radius: var(--radius-card);
+  width: 100%; max-width: none; box-shadow: none; color: var(--text-primary);
+}
+.tk-dropzone .q-uploader__header { background: transparent !important; color: var(--text-primary); }
+.tk-dropzone .q-uploader__list { background: transparent; color: var(--text-secondary); min-height: 0; }
+.tk-dropzone .q-uploader__title { font-size: 16px; font-weight: 600; }
+.tk-dropzone .q-uploader__subtitle { color: var(--text-secondary); }
+.tk-dropzone .q-uploader--idle .q-uploader__subtitle { display: none; }
+.tk-dropzone .q-uploader__file { background: var(--bg-elevated); border-radius: var(--radius-small); }
+.tk-dropzone .q-uploader--dnd { border-color: var(--accent-green); }
+
+/* ---- progress and misc Quasar bits that would otherwise be blue --------------------------- */
+.q-linear-progress { border-radius: 999px; }
+.q-linear-progress__track { background: var(--bg-elevated) !important; opacity: 1 !important; }
+.q-linear-progress.tk-green .q-linear-progress__model { background: var(--accent-green) !important; }
+.q-linear-progress.tk-amber .q-linear-progress__model { background: var(--accent-amber) !important; }
+a { color: var(--accent-green); }
+.q-notification { font-family: "Inter", sans-serif; }
+.q-focus-helper { display: none; }
+*::selection { background: var(--accent-green-dark); color: #ffffff; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-main); }
+
+/* key-value info grid (file information) */
+.tk-kv { display: grid; grid-template-columns: max-content 1fr; column-gap: 18px; row-gap: 6px; font-size: 14px; }
+.tk-kv .k { color: var(--text-muted); }
+.tk-kv .v { color: var(--text-primary); }
+
+/* video player frame */
+.tk-player { background: #000; border-radius: 10px; overflow: hidden; border: 1px solid var(--divider); }
+.tk-player video { width: 100%; max-height: 72vh; display: block; background: #000; }
+.tk-player-empty {
+  aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); background: #0b0b0b; border-radius: 10px; border: 1px solid var(--divider);
+}
+
+/* table (Phase 12+) */
+.tk-table .q-table__top, .tk-table .q-table__bottom, .tk-table thead tr { background: var(--bg-table-header); }
+.tk-table thead th { color: var(--text-secondary); font-weight: 600; }
+.tk-table tbody tr { background: var(--bg-card); }
+.tk-table tbody tr:hover { background: var(--bg-card-hover) !important; }
+.tk-table td, .tk-table th { border-color: #303030 !important; }

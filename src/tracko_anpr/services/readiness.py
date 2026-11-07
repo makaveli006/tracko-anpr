@@ -30,6 +30,8 @@ class Check:
     name: str
     ok: bool
     detail: str
+    short: str = ""
+    """A few words for the sidebar panel, where `detail` would wrap; empty means use `detail`."""
 
 
 @dataclass(frozen=True)
@@ -103,7 +105,8 @@ def gpu_check() -> Check:
         return Check("gpu", False, "nvidia-smi reports no GPU.")
     name, total, used = (part.strip() for part in output[0].split(",")[:3])
     gigabytes = round(int(total) / 1024)
-    return Check("gpu", True, f"{name} ({gigabytes} GB, {used} MiB in use)")
+    vendor = "NVIDIA" if "nvidia" in name.lower() else name
+    return Check("gpu", True, f"{name} ({gigabytes} GB, {used} MiB in use)", short=f"{vendor} ({gigabytes} GB)")
 
 
 def models_check(settings: Settings) -> Check:
@@ -146,7 +149,7 @@ def system_status(settings: Settings, engine: Engine, session: Session | None) -
     return SystemStatus(
         ready=ready,
         checks=checks,
-        gpu=by_name["gpu"].detail if by_name["gpu"].ok else "no GPU",
+        gpu=(by_name["gpu"].short or by_name["gpu"].detail) if by_name["gpu"].ok else "no GPU",
         models=by_name["models"].detail if by_name["models"].ok else "missing",
         ocr="Awiros-ANPR-OCR" if by_name["ocr"].ok else "not installed",
         checked_at=datetime.now(UTC),

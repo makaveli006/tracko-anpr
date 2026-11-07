@@ -797,6 +797,68 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • Processing resolution
    • Video output settings
 
+ HOW THE DASHBOARD IS BUILT (dashboard/, Phase 11 onwards)
+
+ One frame for every page (dashboard/layout.py): the theme,
+ the 62 px header (app icon, title, subtitle, environment
+ badge, decorative bell and profile), the 210 px sidebar with
+ the seven navigation items and the status panel, and the
+ content column. Pages call the service layer only, through
+ dashboard/runtime.py, in a worker thread with a session of
+ their own.
+
+ Colours: every colour is a token in dashboard/static/
+ theme.css (DESIGN section 18); Quasar's palette is replaced
+ per page with ui.colors so no blue reaches the screen; the
+ Inter font is served from the package, nothing from the
+ internet. Filled green is dark green #166522 with white text.
+
+ The status panel is live: services.readiness every 5 s;
+ green "System Ready" only with the database, a worker, the
+ models, the reader and FFmpeg all present, otherwise amber
+ "Attention needed" naming what is missing.
+
+ Upload & Process (dashboard/pages/upload.py): the dropped
+ file is saved under storage/uploads/.incoming, checked with
+ ffprobe and named exactly as an API upload would be, then
+ shown (file name, size, resolution, duration, frame rate,
+ when added). "Process Video" queues a job for the worker;
+ the seven-stage timeline and the progress bar are redrawn
+ every second from the job row until it ends as Completed
+ (with View Analysis, Download Annotated Video and View
+ Detections) or Failed (with the reason in red). A list of
+ every registered video lets one be picked and processed
+ again. Nothing on the page is simulated.
+
+ The video player component (dashboard/components/player.py)
+ is built here for the Overview and Video Analysis pages:
+ the browser's own controls (play, seek bar, time, volume,
+ speed, fullscreen) under an Original / Annotated segmented
+ control that keeps the playback position and state when
+ switching; seek() lets a table row jump the video.
+
+ Verified 2026-11-07 in headless Chromium on the Windows host
+ (the pages fill in over a websocket, so a plain screenshot
+ flag is not enough):
+   • The frame matches the reference layout: header, 210 px
+     sidebar with the active item's green bar, dark cards,
+     green and amber accents, no blue anywhere.
+   • zoomed-in.mp4 (265 MB, 1080p, 1 min 50 s) uploaded
+     through the page's file input, was shown with its
+     details, was queued with "Process Video", showed live
+     progress ("Processing 29%", "69 / 3,288 frames") and
+     ended Completed after 209 s on the worker: 59 vehicles,
+     16 confirmed plates, with per-stage times on the
+     timeline and the three follow-up buttons.
+   • With the worker stopped, the panel turned amber
+     "Attention needed: worker last reported 29 s ago" within
+     one refresh; with it running, green "System Ready".
+   • A bug found by the run: a timer created inside a click
+     handler whose button had just been redrawn raised "The
+     parent element this slot belongs to has been deleted",
+     so the page never polled. Timers are now created once at
+     page build and only switched on and off.
+
 
 ══════════════════════════════════════════════════════════════
  FINAL DEPLOYMENT CONFIGURATION

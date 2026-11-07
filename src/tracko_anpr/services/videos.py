@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -110,17 +112,8 @@ def save_upload(
     Only `.mp4` files are accepted, and the file must be a readable video (checked with ffprobe
     after it is written); otherwise the file is removed and `InvalidVideo` says why.
     """
-    original = Path(filename).name or "upload.mp4"
-    if Path(original).suffix.lower() != ".mp4":
-        raise InvalidVideo(
-            f"Only MP4 videos are accepted; '{original}' is not an .mp4 file. "
-            "Convert it to H.264 MP4 with FFmpeg first."
-        )
-    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
-    final_name = _free_upload_name(session, settings, _clean_name(name or Path(original).stem))
-    destination = settings.root / _upload_path(settings, final_name)
-    part = destination.with_suffix(".part.mp4")
-
+    original = check_upload_name(filename)
+    part = incoming_path(settings, original)
     written = 0
     with part.open("wb") as handle:
         for chunk in chunks:
@@ -130,15 +123,45 @@ def save_upload(
                 part.unlink(missing_ok=True)
                 raise InvalidVideo("The file is larger than 8 GB. Register it where it lies with `tracko-anpr ingest`.")
             handle.write(chunk)
-    if written == 0:
+    return adopt_upload(session, settings, part, original, name=name)
+
+
+def check_upload_name(filename: str) -> str:
+    """The bare file name of an upload, refused with the reason unless it is an .mp4."""
+    original = Path(filename).name or "upload.mp4"
+    if Path(original).suffix.lower() != ".mp4":
+        raise InvalidVideo(
+            f"Only MP4 videos are accepted; '{original}' is not an .mp4 file. "
+            "Convert it to H.264 MP4 with FFmpeg first."
+        )
+    return original
+
+
+def incoming_path(settings: Settings, original: str) -> Path:
+    """Where an upload is written while it arrives, before it is checked and given its final name."""
+    folder = settings.uploads_dir / ".incoming"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"{_clean_name(Path(original).stem)}-{os.getpid()}-{time.time_ns()}.part.mp4"
+
+
+def adopt_upload(
+    session: Session, settings: Settings, part: Path, original: str, name: str | None = None
+) -> VideoSummary:
+    """Check a fully written upload, move it to storage/uploads/<name>.mp4 and register it.
+
+    The file must be a readable video (ffprobe); otherwise it is removed and `InvalidVideo` says why.
+    """
+    if not part.is_file() or part.stat().st_size == 0:
         part.unlink(missing_ok=True)
         raise InvalidVideo("The uploaded file is empty.")
-
     try:
-        info = probe_video(part)
+        probe_video(part)
     except VideoError as error:
         part.unlink(missing_ok=True)
         raise InvalidVideo(f"'{original}' could not be read as a video: {error}") from error
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    final_name = _free_upload_name(session, settings, _clean_name(name or Path(original).stem))
+    destination = settings.root / _upload_path(settings, final_name)
     shutil.move(part, destination)
     info = probe_video(destination)
     video = register_video(session, info, settings.root, UPLOADED, name=final_name, original_filename=original)

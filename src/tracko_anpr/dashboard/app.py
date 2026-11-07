@@ -1,30 +1,42 @@
 """Mounting the NiceGUI dashboard on the FastAPI app, so one process serves both.
 
 NiceGUI keeps each browser session's state in memory, which is why the dashboard and the
-API share one process (ARCHITECTURE.md, "Web Process"). The pages are built in Phases 11 to
-13; until then `/` shows a plain placeholder with the API's status, so `tracko-anpr web` can
-be started and checked end to end.
+API share one process (ARCHITECTURE.md, "Web Process"). Pages live in `dashboard/pages/`;
+importing a page module registers its routes. Pages must never query the database or read
+files themselves: they call the service functions in `tracko_anpr.services` through
+`dashboard.runtime.query`, exactly as the API routes do.
 
-Pages must never query the database or read files themselves: they call the service
-functions in `tracko_anpr.services`, exactly as the API routes do.
+Static files (the theme stylesheet and the Inter font) are served from this package at
+/dashboard-static, so nothing is fetched from the internet at run time.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
+
+STATIC_DIR = Path(__file__).parent / "static"
+STATIC_URL = "/dashboard-static"
 
 
 def mount_dashboard(app: FastAPI) -> None:
+    from nicegui import app as nicegui_app
     from nicegui import ui
 
-    @ui.page("/")
-    def placeholder() -> None:
-        ui.dark_mode(True)
-        ui.query("body").style("background-color: #0a0a0a; color: #e5e5e5")
-        with ui.column().classes("p-8 gap-2"):
-            ui.label("tracko-anpr").classes("text-2xl font-semibold")
-            ui.label("The dashboard is built in the next phases. The API is up:")
-            ui.link("API documentation", "/api/docs").style("color: #4ADE36")
-            ui.link("System status", "/api/system/status").style("color: #4ADE36")
+    from tracko_anpr.dashboard.runtime import runtime
 
-    ui.run_with(app, title="tracko-anpr", favicon="🚗", dark=True, storage_secret=None)
+    runtime.configure(app.state.settings, app.state.engine, app.state.session_factory)
+    nicegui_app.add_static_files(STATIC_URL, STATIC_DIR)
+
+    # Importing the page modules registers their routes.
+    from tracko_anpr.dashboard.pages import placeholders, upload  # noqa: F401
+
+    ui.run_with(
+        app,
+        title="Vehicle ANPR POC",
+        favicon=str(STATIC_DIR / "favicon.svg"),
+        dark=True,
+        storage_secret=None,
+        reconnect_timeout=10.0,
+    )

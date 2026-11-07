@@ -16,7 +16,7 @@ Tick a phase when it is complete and merged into `development`.
 - [x] Phase 8 — Database (done 2026-11-07; PostgreSQL 18 container, seven tables, Alembic migration `fc32b7b47ec6`, metric queries in `db/metrics.py`, `process` stores its results, `db-status`)
 - [x] Phase 9 — Worker (done 2026-11-07; `tracko-anpr worker`, `enqueue`, `ingest`, `jobs`; crash recovery and the corrupt-file path verified against PostgreSQL)
 - [x] Phase 10 — Services and API (done 2026-11-07; `services/` shared layer, the eight endpoints plus status, summary, original, downloads, history + export, detail, images, registry, settings; `tracko-anpr web` with NiceGUI mounted; also the rotation fix for upright phone videos)
-- [ ] Phase 11 — Dashboard shell and Upload & Process
+- [x] Phase 11 — Dashboard shell and Upload & Process (done 2026-11-07; theme tokens, Inter served locally, header, sidebar with live status panel, video player component, Upload & Process page with real progress; verified in headless Chromium)
 - [ ] Phase 12 — Overview page
 - [ ] Phase 13 — Remaining pages and registry
 - [ ] Phase 14 — Demo data and readiness

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -340,9 +341,13 @@ def _run_worker(args: argparse.Namespace) -> int:
     )
 
     def ask_to_stop(signum, frame):
-        _log("stop requested; finishing the current job first (press Ctrl+C again to interrupt it)")
-        worker.request_stop()
+        # Runs inside a signal handler: no print() here (not re-entrant; `pkill` can deliver two SIGTERMs,
+        # one through uv and one directly, the second while the first is still being handled).
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)  # a repeat is not a second request
         signal.signal(signal.SIGINT, signal.default_int_handler)  # a second Ctrl+C raises KeyboardInterrupt
+        worker.request_stop()
+        message = f"[{_timestamp()}] stop requested; finishing the current job first (Ctrl+C again interrupts it)\n"
+        os.write(sys.stdout.fileno(), message.encode())
 
     signal.signal(signal.SIGINT, ask_to_stop)
     signal.signal(signal.SIGTERM, ask_to_stop)
