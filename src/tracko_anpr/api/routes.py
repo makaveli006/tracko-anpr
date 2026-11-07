@@ -319,15 +319,23 @@ def image(relative_path: str, settings: Annotated[Settings, SettingsDep]):
 # --- demo registry and settings -----------------------------------------------------------------
 
 
-@router.get("/registry")
+@router.get("/registry", response_model=registry.RegistryList)
 def list_registry(session: Annotated[Session, SessionDep], search: str | None = None):
-    return {"disclaimer": registry.DISCLAIMER, "entries": registry.list_entries(session, search)}
+    return registry.RegistryList(registry.DISCLAIMER, registry.list_entries(session, search))
 
 
-@router.get("/registry/{registration_number}")
+@router.get("/registry/{registration_number}", response_model=registry.RegistryLookup)
 def registry_lookup(registration_number: str, session: Annotated[Session, SessionDep]):
-    record = registry.lookup(session, registration_number)
-    return {"disclaimer": registry.DISCLAIMER, "match": record is not None, "record": record}
+    """Exact match, or a possible match when a record is one character away (never asserted), or neither."""
+    found = registry.lookup(session, registration_number)
+    return registry.RegistryLookup(
+        disclaimer=registry.DISCLAIMER,
+        match=found is not None and found.exact,
+        possible=found is not None and found.possible,
+        distance=found.distance if found else None,
+        difference=found.difference if found and found.possible else None,
+        record=found.record if found else None,
+    )
 
 
 @router.get("/settings", response_model=list[app_settings.SettingItem])

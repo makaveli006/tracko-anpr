@@ -2,6 +2,11 @@
 
 No real registration database is consulted, ever. Every record here was generated for the
 demonstration and every screen that shows one must say so.
+
+A number matches a record exactly, or is a "possible match" when a record is one character away
+(one substitution, insertion or deletion: the 0/O, 8/B, 1/I misreads). A possible match is shown
+in amber with the record and the differing character named, and is never counted as a Match.
+Only confirmed numbers are looked up (the user's decision, 2026-11-07).
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tracko_anpr.db.models import DemoRegistryEntry
+from tracko_anpr.pipeline.validation import describe_difference, edit_distance, normalize
 
 DISCLAIMER = "Demonstration data only. These records are fictional; no real registration database is consulted."
 
@@ -45,6 +51,45 @@ def _record(entry: DemoRegistryEntry) -> RegistryRecord:
     )
 
 
+@dataclass(frozen=True)
+class RegistryMatch:
+    """A record for a recognised number: exact, or one character away ("possible", never asserted)."""
+
+    record: RegistryRecord
+    exact: bool
+    distance: int
+    difference: str
+    """For a possible match: which character differs, in words."""
+    others: int = 0
+    """How many more records were also one character away."""
+
+    @property
+    def possible(self) -> bool:
+        return not self.exact
+
+    @property
+    def kind(self) -> str:
+        return "exact" if self.exact else "possible"
+
+
+@dataclass(frozen=True)
+class RegistryLookup:
+    """The API's answer for one number."""
+
+    disclaimer: str
+    match: bool
+    possible: bool
+    distance: int | None
+    difference: str | None
+    record: RegistryRecord | None
+
+
+@dataclass(frozen=True)
+class RegistryList:
+    disclaimer: str
+    entries: list[RegistryRecord]
+
+
 def list_entries(session: Session, search: str | None = None, limit: int = 500) -> list[RegistryRecord]:
     query = select(DemoRegistryEntry).order_by(DemoRegistryEntry.registration_number).limit(limit)
     if search:
@@ -52,23 +97,50 @@ def list_entries(session: Session, search: str | None = None, limit: int = 500) 
     return [_record(entry) for entry in session.scalars(query).all()]
 
 
-def lookup(session: Session, registration_number: str | None) -> RegistryRecord | None:
-    """The fictional record for a number, or None: a "No Match"."""
-    if not registration_number:
+def _exact(entry: DemoRegistryEntry) -> RegistryMatch:
+    return RegistryMatch(_record(entry), True, 0, "")
+
+
+def _near_matches(session: Session, numbers: set[str]) -> dict[str, RegistryMatch]:
+    """For numbers with no exact record: the record one character away (a substitution first, then the lowest number).
+
+    The registry is tens of rows, so every number is compared in Python; one query, no index needed.
+    """
+    if not numbers:
+        return {}
+    entries = session.scalars(select(DemoRegistryEntry).order_by(DemoRegistryEntry.registration_number)).all()
+    found: dict[str, RegistryMatch] = {}
+    for number in numbers:
+        near = [entry for entry in entries if edit_distance(number, entry.registration_number) == 1]
+        if not near:
+            continue
+        near.sort(key=lambda entry: (len(entry.registration_number) != len(number), entry.registration_number))
+        best = near[0]
+        difference = describe_difference(number, best.registration_number)
+        found[number] = RegistryMatch(_record(best), False, 1, difference, len(near) - 1)
+    return found
+
+
+def lookup(session: Session, registration_number: str | None) -> RegistryMatch | None:
+    """The record for a number: exact, or one character away as a possible match; None is a "No Match"."""
+    number = normalize(registration_number or "")
+    if not number:
         return None
-    entry = session.scalar(
-        select(DemoRegistryEntry).where(DemoRegistryEntry.registration_number == registration_number.upper())
-    )
-    return None if entry is None else _record(entry)
+    entry = session.scalar(select(DemoRegistryEntry).where(DemoRegistryEntry.registration_number == number))
+    if entry is not None:
+        return _exact(entry)
+    return _near_matches(session, {number}).get(number)
 
 
-def lookup_many(session: Session, numbers: list[str | None]) -> dict[str, RegistryRecord]:
-    """Records for all the given numbers at once, keyed by number."""
-    wanted = {number.upper() for number in numbers if number}
+def lookup_many(session: Session, numbers: list[str | None]) -> dict[str, RegistryMatch]:
+    """Matches for all the given numbers at once, keyed by (normalised) number; exact ones first."""
+    wanted = {normalize(number) for number in numbers if number} - {""}
     if not wanted:
         return {}
     entries = session.scalars(select(DemoRegistryEntry).where(DemoRegistryEntry.registration_number.in_(wanted))).all()
-    return {entry.registration_number: _record(entry) for entry in entries}
+    found = {entry.registration_number: _exact(entry) for entry in entries}
+    found.update(_near_matches(session, wanted - set(found)))
+    return found
 
 
 def count(session: Session) -> int:
@@ -87,15 +159,23 @@ class RecognizedNumber:
     sightings: int
     """Counted vehicles that carry this number across the latest runs."""
     best_confidence: float
-    record: RegistryRecord | None
+    match: RegistryMatch | None
 
     @property
-    def match(self) -> bool:
-        return self.record is not None
+    def exact(self) -> bool:
+        return self.match is not None and self.match.exact
+
+    @property
+    def possible(self) -> bool:
+        return self.match is not None and self.match.possible
+
+    @property
+    def record(self) -> RegistryRecord | None:
+        return self.match.record if self.match is not None else None
 
 
 def recognized_numbers(session: Session, search: str | None = None) -> list[RecognizedNumber]:
-    """Every confirmed number across the processed videos with its Match / No Match status."""
+    """Every confirmed number across the processed videos with its Match / Possible match / No match status."""
     from tracko_anpr.db.metrics import latest_completed_jobs
     from tracko_anpr.db.models import RecognitionEvent, VehicleTrack, Video
 

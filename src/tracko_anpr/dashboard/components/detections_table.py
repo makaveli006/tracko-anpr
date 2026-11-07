@@ -51,6 +51,24 @@ def direction_cell(approach: str | None, sideways: str | None, text: str) -> Non
         ui.tooltip("Worked out from how the vehicle's box grew, shrank or moved across the picture.")
 
 
+def registry_cell(match, status: str) -> None:
+    """Match (green), Possible match (amber, one character away, never asserted), No match, or nothing."""
+    if match is not None and match.exact:
+        ui.label("Match").classes("tk-green font-medium")
+    elif match is not None:
+        with ui.row().classes("items-center gap-1 no-wrap tk-amber"):
+            ui.icon("help_outline").classes("text-base")
+            ui.label("Possible match").classes("font-medium")
+            ui.tooltip(
+                f"The registry has {match.record.registration_number}, one character away ({match.difference}). "
+                "Not asserted: the recognised number is shown as read."
+            )
+    elif status == "confirmed":
+        ui.label("No match").classes("tk-secondary")
+    else:
+        ui.label("—").classes("tk-muted")
+
+
 def detections_table(
     rows: list[DetectionRow],
     columns: tuple[str, ...],
@@ -113,12 +131,7 @@ def detections_table(
                             elif column == "status":
                                 status_badge(d.status)
                             elif column == "registry":
-                                if row.registry_match is not None:
-                                    ui.label("Match").classes("tk-green font-medium")
-                                elif d.status == "confirmed":
-                                    ui.label("No match").classes("tk-secondary")
-                                else:
-                                    ui.label("—").classes("tk-muted")
+                                registry_cell(row.registry_match, d.status)
                             elif column == "plate":
                                 if image_url(d.plate_crop_path):
                                     ui.image(image_url(d.plate_crop_path)).classes("tk-plate-thumb")

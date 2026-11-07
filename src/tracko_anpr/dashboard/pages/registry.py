@@ -18,7 +18,12 @@ from tracko_anpr.services.registry import DISCLAIMER, RecognizedNumber, Registry
 
 
 def _load(session, search: str | None):
-    return registry.list_entries(session, search), registry.recognized_numbers(session, search), registry.count(session)
+    return (
+        registry.list_entries(session, search),
+        registry.recognized_numbers(session, search),
+        registry.count(session),
+        registry.lookup(session, search) if search else None,
+    )
 
 
 def _url(search: str | None) -> str:
@@ -84,26 +89,34 @@ def matches_table(numbers: list[RecognizedNumber]) -> None:
                     with ui.element("td"):
                         ui.label(f"{n.best_confidence:.2f}").classes("tk-mono")
                     with ui.element("td"):
-                        if n.match:
+                        if n.exact:
                             with ui.row().classes("items-center gap-1 no-wrap tk-green"):
                                 ui.icon("check_circle").classes("text-base")
                                 ui.label("Match").classes("font-medium")
+                        elif n.possible:
+                            with ui.row().classes("items-center gap-1 no-wrap tk-amber"):
+                                ui.icon("help_outline").classes("text-base")
+                                ui.label("Possible match").classes("font-medium")
+                                ui.tooltip(f"One character away ({n.match.difference}); not asserted.")
                         else:
                             with ui.row().classes("items-center gap-1 no-wrap tk-secondary"):
                                 ui.icon("remove_circle_outline").classes("text-base")
                                 ui.label("No match")
                     with ui.element("td"):
                         r = n.record
-                        text = (
-                            f"{r.owner_name} · {r.vehicle_description} · {r.colour} · {r.registered_at}" if r else "—"
-                        )
-                        ui.label(text).classes("" if r else "tk-muted")
+                        if r is None:
+                            ui.label("—").classes("tk-muted")
+                        else:
+                            text = f"{r.owner_name} · {r.vehicle_description} · {r.colour} · {r.registered_at}"
+                            if n.possible:
+                                text = f"{r.registration_number} · {text} ({n.match.difference})"
+                            ui.label(text).classes("tk-amber" if n.possible else "")
 
 
 @ui.page("/registry")
 async def registry_page(q: str = "") -> None:
     search = q.strip() or None
-    entries, numbers, total = await query(_load, search)
+    entries, numbers, total, found = await query(_load, search)
     with frame("registry", "Demo Registry", "Fictional vehicle registrations for the demonstration"):
         with ui.element("div").classes("tk-banner amber w-full"):
             ui.icon("warning")
@@ -128,25 +141,39 @@ async def registry_page(q: str = "") -> None:
                 ui.element("div").style("flex: 1 1 0")
                 ui.label(f"{total} fictional records").classes("tk-secondary text-sm")
             if search:
-                exact = next((e for e in entries if e.registration_number == search.upper().replace(" ", "")), None)
-                with ui.element("div").classes(f"tk-banner {'green' if exact else 'gray'} mt-3"):
-                    ui.icon("check_circle" if exact else "search_off")
-                    ui.label(
-                        f"{search.upper()}: Match — {exact.owner_name}, {exact.vehicle_description}, {exact.colour} "
-                        f"(fictional)"
-                        if exact
-                        else f"{search.upper()}: no exact match in the demonstration registry"
+                shown = search.upper().replace(" ", "")
+                if found is not None and found.exact:
+                    r = found.record
+                    tone, icon = "green", "check_circle"
+                    answer = f"{shown}: Match — {r.owner_name}, {r.vehicle_description}, {r.colour} (fictional)"
+                elif found is not None:
+                    r = found.record
+                    tone, icon = "amber", "help_outline"
+                    answer = (
+                        f"{shown}: no exact match; {r.registration_number} is one character away "
+                        f"({found.difference}) — {r.owner_name}, {r.vehicle_description}, {r.colour} (fictional, "
+                        "not asserted)"
                     )
+                else:
+                    tone, icon = "gray", "search_off"
+                    answer = f"{shown}: no match in the demonstration registry, exact or one character away"
+                with ui.element("div").classes(f"tk-banner {tone} mt-3"):
+                    ui.icon(icon)
+                    ui.label(answer)
         with ui.element("div").classes("tk-card w-full"):
             with ui.row().classes("w-full items-center justify-between no-wrap"):
                 ui.label("Recognised Numbers vs Registry").classes("tk-card-title")
-                matched = sum(1 for n in numbers if n.match)
-                ui.label(f"{matched} match · {len(numbers) - matched} no match").classes("tk-secondary text-sm")
+                exact = sum(1 for n in numbers if n.exact)
+                possible = sum(1 for n in numbers if n.possible)
+                ui.label(f"{exact} match · {possible} possible · {len(numbers) - exact - possible} no match").classes(
+                    "tk-secondary text-sm"
+                )
             if numbers:
                 matches_table(numbers)
                 ui.label(
                     "Every number the pipeline confirmed in the processed videos, looked up in the fictional "
-                    "registry. A match means a fictional record was generated for it, nothing more."
+                    "registry. A match means a fictional record was generated for it, nothing more; a possible "
+                    "match is a record one character away, shown so a misread can be noticed, never asserted."
                 ).classes("tk-muted text-xs mt-1")
             else:
                 ui.label(
@@ -158,7 +185,8 @@ async def registry_page(q: str = "") -> None:
                 records_table(entries)
                 ui.label(
                     "Generated with `tracko-anpr seed-registry`: fictional records for about half of the "
-                    "recognised numbers, plus a few numbers that appear in no video."
+                    "recognised numbers, near-miss records one character from some of the others, plus a few "
+                    "numbers that appear in no video."
                 ).classes("tk-muted text-xs mt-1")
             else:
                 ui.label("The registry is empty. Generate it with: uv run tracko-anpr seed-registry").classes(

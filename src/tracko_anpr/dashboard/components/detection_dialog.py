@@ -177,11 +177,22 @@ async def show_detection(
                 ui.label(f"T{detail.same_vehicle_as} (not counted again)").classes("v")
             ui.label("Demo registry").classes("k")
             with ui.element("div").classes("v"):
-                if detail.registry_match is not None:
-                    r = detail.registry_match
+                if detail.registry_match is not None and detail.registry_match.exact:
+                    r = detail.registry_match.record
                     ui.label(
                         f"Match · {r.owner_name} · {r.vehicle_description} · {r.colour} · {r.registered_at}"
                     ).classes("tk-green")
+                elif detail.registry_match is not None:
+                    m = detail.registry_match
+                    r = m.record
+                    ui.label(
+                        f"Possible match · {r.registration_number} · {r.owner_name} · {r.vehicle_description} · "
+                        f"{r.colour} · {r.registered_at}"
+                    ).classes("tk-amber")
+                    ui.label(
+                        f"One character differs ({m.difference}); the number is not asserted to be this record."
+                        + (f" {m.others} more record(s) are also one character away." if m.others else "")
+                    ).classes("tk-muted text-xs")
                 elif d.status == "confirmed":
                     ui.label("No match").classes("tk-secondary")
                 else:

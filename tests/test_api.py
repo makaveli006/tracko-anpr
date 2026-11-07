@@ -324,12 +324,47 @@ def test_a_confirmed_number_in_the_demo_registry_shows_as_a_match(client, app, s
         )
     rows = client.get(f"/api/videos/{video_id}/detections").json()
     matched = next(row for row in rows if row["detection"]["track_id"] == 1)
-    assert matched["registry_match"]["owner_name"] == "A. Demo"
-    assert matched["registry_match"]["fictional"] is True
+    assert matched["registry_match"]["exact"] is True and matched["registry_match"]["record"]["owner_name"] == "A. Demo"
+    assert matched["registry_match"]["record"]["fictional"] is True
     lookup = client.get("/api/registry/KL07AB1234").json()
-    assert lookup["match"] is True and "fictional" in lookup["disclaimer"]
-    assert client.get("/api/registry/KL00ZZ0000").json()["match"] is False
+    assert lookup["match"] is True and lookup["possible"] is False and "fictional" in lookup["disclaimer"]
+    assert client.get("/api/registry/kl 07 ab 1234").json()["match"] is True  # spaces and case do not matter
+    missing = client.get("/api/registry/KL00ZZ0000").json()
+    assert missing["match"] is False and missing["possible"] is False and missing["record"] is None
     assert client.get("/api/registry?search=07ab").json()["entries"][0]["registration_number"] == "KL07AB1234"
+
+
+def _registry_entry(number: str, owner: str = "N. Near") -> DemoRegistryEntry:
+    return DemoRegistryEntry(
+        registration_number=number, owner_name=owner, vehicle_description="Honda City", vehicle_type="Car",
+        colour="Grey", registered_at="Ernakulam RTO", valid_until=date(2030, 1, 1),
+    )  # fmt: skip
+
+
+def test_a_record_one_character_away_is_a_possible_match_never_a_match(client, app, settings):
+    video_id = stored_run(app, settings)
+    with session_scope(app.state.session_factory) as session:
+        session.add(_registry_entry("KL07AB1284"))  # 8 where the video's KL07AB1234 has 3
+    rows = client.get(f"/api/videos/{video_id}/detections").json()
+    row = next(r for r in rows if r["detection"]["track_id"] == 1)
+    found = row["registry_match"]
+    assert found["exact"] is False and found["distance"] == 1
+    assert found["difference"] == "3 read where the record has 8"
+    assert found["record"]["registration_number"] == "KL07AB1284" and found["others"] == 0
+    assert row["detection"]["registration_number"] == "KL07AB1234"  # the reading itself is untouched
+    lookup = client.get("/api/registry/KL07AB1234").json()
+    assert lookup["match"] is False and lookup["possible"] is True
+    assert lookup["difference"] == "3 read where the record has 8" and lookup["record"]["owner_name"] == "N. Near"
+    detail = client.get(f"/api/detections/{row['detection']['track_pk']}").json()
+    assert detail["registry_match"]["exact"] is False
+    header, *lines = client.get("/api/detections/export.csv?status=confirmed").text.strip().splitlines()
+    assert "demo_registry_match,demo_registry_possible," in header
+    assert any(",KL07AB1234," in line and ",,KL07AB1284," in line for line in lines)  # no owner, the near number
+
+    with session_scope(app.state.session_factory) as session:
+        session.add(_registry_entry("KL07AB1234", "A. Exact"))
+    row = next(r for r in client.get(f"/api/videos/{video_id}/detections").json() if r["detection"]["track_id"] == 1)
+    assert row["registry_match"]["exact"] is True and row["registry_match"]["record"]["owner_name"] == "A. Exact"
 
 
 # --- files --------------------------------------------------------------------------------------
@@ -467,12 +502,21 @@ def test_the_registry_seeder_makes_matches_and_non_matches_and_is_repeatable(app
         assert again.created_from_videos == 0 and again.skipped_existing == 2 and again.created_extra == 0
         assert registry.count(session) == 4
         numbers = registry.recognized_numbers(session)
-        assert {n.registration_number: n.match for n in numbers} == {"KL07AB1234": True, "KL10CD5678": True}
-        half = registry_seed.seed(session, share=0.0, extra=0, reset=True)
+        assert {n.registration_number: n.exact for n in numbers} == {"KL07AB1234": True, "KL10CD5678": True}
+        half = registry_seed.seed(session, share=0.0, extra=0, near=0.0, reset=True)
         assert half.created_from_videos == 0 and registry.count(session) == 0
-        assert all(not n.match for n in registry.recognized_numbers(session))
-        record = registry.lookup(session, "kl07ab1234")
-        assert record is None
+        assert all(not n.exact for n in registry.recognized_numbers(session))
+        assert registry.lookup(session, "kl07ab1234") is None
+
+        # Near-miss records: one character from a confirmed number that has no record, so "possible match" shows.
+        near = registry_seed.seed(session, share=0.0, extra=0, near=1.0, reset=True)
+        assert near.created_near == 2 and registry.count(session) == 2
+        possible = {n.registration_number: n.possible for n in registry.recognized_numbers(session)}
+        assert possible == {"KL07AB1234": True, "KL10CD5678": True}
+        found = registry.lookup(session, "KL07AB1234")
+        assert found is not None and found.possible and found.distance == 1
+        assert found.record.registration_number != "KL07AB1234" and "one character from KL07AB1234" in found.record.note
+        assert registry_seed.seed(session, share=0.0, extra=0, near=1.0).created_near == 0  # repeatable
 
 
 def test_a_busy_worker_is_alive_even_when_a_stage_reports_nothing_for_half_a_minute(app, settings):

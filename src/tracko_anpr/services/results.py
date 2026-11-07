@@ -17,7 +17,7 @@ from tracko_anpr.pipeline.direction import direction_label
 from tracko_anpr.pipeline.validation import CONFIRMED, ValidationRules, correct, normalize
 from tracko_anpr.services import corrections, registry
 from tracko_anpr.services.corrections import Correction
-from tracko_anpr.services.registry import RegistryRecord
+from tracko_anpr.services.registry import RegistryMatch
 
 RULES = ValidationRules()
 """The pipeline's frozen thresholds, used to place the 'read' and 'confirmed' events on a track's timeline."""
@@ -81,7 +81,8 @@ class DetectionRow:
     """
 
     detection: Detection
-    registry_match: RegistryRecord | None
+    registry_match: RegistryMatch | None
+    """Exact, or one character away ("possible", never asserted); only for confirmed numbers."""
     correction: Correction | None = None
 
 
@@ -191,7 +192,7 @@ def _same_number(text: str, number: str) -> bool:
 @dataclass(frozen=True)
 class DetectionDetail:
     detection: Detection
-    registry_match: RegistryRecord | None
+    registry_match: RegistryMatch | None
     frames_seen: int
     first_frame: int
     last_frame: int
@@ -333,6 +334,7 @@ def export_history_csv(session: Session, **filters) -> str:
     writer.writerow(
         ["video", "track", "vehicle_type", "first_seen_s", "last_seen_s", "direction", "registration_number"]
         + ["status", "confidence", "agreeing_frames", "readings", "reason", "demo_registry_match"]
+        + ["demo_registry_possible"]
         + ["corrected_number", "corrected_type", "corrected_by", "corrected_at"]
     )
     for row in rows:
@@ -345,7 +347,8 @@ def export_history_csv(session: Session, **filters) -> str:
         writer.writerow(
             [d.video_name, f"T{d.track_id}", d.vehicle_type, d.first_seen_s, d.last_seen_s, d.direction_label]
             + [d.registration_number or "", d.status, f"{d.confidence:.4f}", d.support, d.readings, d.reason]
-            + [row.registry_match.owner_name if row.registry_match else ""]
+            + [m.record.owner_name if (m := row.registry_match) and m.exact else ""]
+            + [m.record.registration_number if m and m.possible else ""]
             + corrected
         )
     return buffer.getvalue()

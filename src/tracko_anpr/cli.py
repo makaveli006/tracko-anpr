@@ -510,13 +510,15 @@ def _run_seed_registry(args: argparse.Namespace) -> int:
     settings = get_settings()
     with session_scope(make_session_factory(_open_database(settings))) as session:
         outcome = registry_seed.seed(
-            session, share=args.share, extra=args.extra, seed_value=args.seed, reset=args.reset
+            session, share=args.share, extra=args.extra, seed_value=args.seed, reset=args.reset, near=args.near
         )
         total = registry.count(session)
     print(
         f"Confirmed numbers in the processed videos: {outcome.confirmed_numbers}. "
         f"Created {outcome.created_from_videos} fictional records for them (about {args.share:.0%}), "
-        f"{outcome.created_extra} for numbers seen in no video; {outcome.skipped_existing} already existed. "
+        f"{outcome.created_extra} for numbers seen in no video, {outcome.created_near} near-miss records one "
+        f"character from a number without a record (about {args.near:.0%}); {outcome.skipped_existing} already "
+        f"existed. "
         f"Registry now holds {total} fictional records."
     )
     print("Demonstration data only: every record is invented; no real registration database is consulted.")
@@ -601,6 +603,12 @@ def build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--share", type=float, default=0.5, help="Share of confirmed numbers to give a record (0.5).")
     seed.add_argument("--extra", type=int, default=4, help="Fictional numbers seen in no video to add (4).")
     seed.add_argument("--seed", type=int, default=2026, help="Random seed, so a re-run adds nothing new.")
+    seed.add_argument(
+        "--near",
+        type=float,
+        default=0.25,
+        help="Share of the numbers left without a record to give a near-miss (0.25).",
+    )
     seed.add_argument("--reset", action="store_true", help="Delete the existing registry first.")
     seed.set_defaults(handler=_run_seed_registry)
 

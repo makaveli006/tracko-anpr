@@ -44,6 +44,7 @@ from tracko_anpr.pipeline.tracking import (
     format_track_id,
     lost_track_buffer,
 )
+from tracko_anpr.pipeline.validation import describe_difference, edit_distance
 from tracko_anpr.pipeline.video import (
     FFmpegWriter,
     VideoError,
@@ -246,6 +247,24 @@ def test_writing_part_of_a_video_takes_only_that_much_audio(tmp_path: Path):
             writer.write(np.zeros((48, 64, 3), dtype=np.uint8))
     assert probe_video(output).frame_count == 10
     assert _audio_seconds(output) < 0.5
+
+
+# --- one character of tolerance for the registry --------------------------------------------------------
+
+
+def test_edit_distance_counts_substitutions_insertions_and_deletions():
+    assert edit_distance("KL07AB1234", "KL07AB1234") == 0
+    assert edit_distance("KL07AB1234", "KL07AB1284") == 1  # 3 → 8
+    assert edit_distance("KL07AB1234", "KL07AB123") == 1  # a digit dropped
+    assert edit_distance("KL07AB123", "KL07AB1234") == 1
+    assert edit_distance("KL07AB1234", "KL07BA1234") == 2  # two letters swapped
+    assert edit_distance("", "KL") == 2
+
+
+def test_the_difference_is_described_in_words():
+    assert describe_difference("KL07AB1234", "KL07AB1284") == "3 read where the record has 8"
+    assert describe_difference("KL07AB123", "KL07AB1234") == "one character missing from the reading"
+    assert describe_difference("KL07AB12345", "KL07AB1234") == "one extra character in the reading"
 
 
 # --- the plate-size check -----------------------------------------------------------------------------

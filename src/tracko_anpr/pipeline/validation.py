@@ -50,6 +50,31 @@ def normalize(text: str) -> str:
     return "".join(character for character in text.upper() if character.isascii() and character.isalnum())
 
 
+def edit_distance(a: str, b: str) -> int:
+    """Levenshtein distance: the fewest single-character substitutions, insertions and deletions from `a` to `b`."""
+    if a == b:
+        return 0
+    previous = list(range(len(b) + 1))
+    for row, ours in enumerate(a, 1):
+        current = [row]
+        for column, theirs in enumerate(b, 1):
+            current.append(min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + (ours != theirs)))
+        previous = current
+    return previous[-1]
+
+
+def describe_difference(number: str, candidate: str) -> str:
+    """Words for a one-edit difference between a recognised number and a record ("3 read where the record has 8")."""
+    if len(number) == len(candidate):
+        for ours, theirs in zip(number, candidate, strict=True):
+            if ours != theirs:
+                return f"{ours} read where the record has {theirs}"
+        return "identical"
+    if len(number) < len(candidate):
+        return "one character missing from the reading"
+    return "one extra character in the reading"
+
+
 def plate_kind(text: str) -> str | None:
     """'standard' or 'bharat' when the text has the shape of an Indian registration, else None.
 

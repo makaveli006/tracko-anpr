@@ -2,7 +2,9 @@
 
 Records are made up for a share of the registration numbers the pipeline confirmed in the
 processed videos, plus a few numbers that appear in no video, so the demo shows both matches
-and non-matches. Every field is invented: names, vehicles, colours, offices and dates. No real
+and non-matches; and, for a share of the confirmed numbers that got no record, a near-miss
+record one character away, so the "possible match" state shows too. Every field is invented:
+names, vehicles, colours, offices and dates. No real
 registration data is involved, and every screen that shows a record says so.
 """
 
@@ -17,9 +19,16 @@ from sqlalchemy.orm import Session
 
 from tracko_anpr.db.metrics import latest_completed_jobs
 from tracko_anpr.db.models import DemoRegistryEntry, RecognitionEvent, VehicleTrack
-from tracko_anpr.pipeline.validation import CONFIRMED
+from tracko_anpr.pipeline.validation import CONFIRMED, is_valid_plate
 
 NOTE = "Fictional record generated for the demonstration."
+NEAR_NOTE = "Fictional near-miss record for the demonstration (one character from {number})."
+LOOKALIKE_DIGIT = {"0": "8", "1": "7", "2": "7", "3": "8", "4": "1", "5": "6", "6": "5", "7": "1", "8": "3", "9": "0"}
+LOOKALIKE_LETTER = {
+    "A": "H", "B": "R", "C": "G", "D": "B", "E": "F", "F": "E", "G": "C", "H": "N", "J": "U", "K": "X",
+    "L": "E", "M": "N", "N": "M", "P": "R", "Q": "D", "R": "P", "S": "B", "T": "Y", "U": "V", "V": "U",
+    "W": "V", "X": "K", "Y": "T", "Z": "S",
+}  # fmt: skip
 
 FIRST_NAMES = (
     "Anand", "Priya", "Rahul", "Meera", "Suresh", "Lakshmi", "Vikram", "Anjali", "Arjun", "Divya",
@@ -93,6 +102,8 @@ class SeedOutcome:
     created_from_videos: int
     created_extra: int
     skipped_existing: int
+    created_near: int = 0
+    """Near-miss records: one character from a confirmed number that has no record of its own."""
 
 
 def confirmed_numbers(session: Session) -> dict[str, str]:
@@ -125,10 +136,31 @@ def make_entry(number: str, vehicle_type: str, rng: random.Random, today: date) 
     )
 
 
+def near_miss(number: str, rng: random.Random, taken: set[str]) -> str | None:
+    """A valid plate one look-alike character away from `number` that no record or vehicle has yet."""
+    positions = list(range(len(number)))
+    rng.shuffle(positions)
+    for position in positions:
+        character = number[position]
+        swap = LOOKALIKE_DIGIT.get(character) if character.isdigit() else LOOKALIKE_LETTER.get(character)
+        if swap is None:
+            continue
+        candidate = number[:position] + swap + number[position + 1 :]
+        if candidate not in taken and is_valid_plate(candidate):
+            return candidate
+    return None
+
+
 def seed(
-    session: Session, share: float = 0.5, extra: int = 4, seed_value: int = 2026, reset: bool = False
+    session: Session,
+    share: float = 0.5,
+    extra: int = 4,
+    seed_value: int = 2026,
+    reset: bool = False,
+    near: float = 0.25,
 ) -> SeedOutcome:
-    """Create fictional records for about `share` of the confirmed numbers, plus `extra` unseen numbers.
+    """Create fictional records for about `share` of the confirmed numbers, plus `extra` unseen numbers, plus
+    near-miss records (one character away) for about `near` of the confirmed numbers left without a record.
 
     Deterministic for a given seed and set of numbers, so running it again adds nothing new.
     """
@@ -156,5 +188,22 @@ def seed(
         session.add(make_entry(number, rng.choice(("Car", "Motorcycle")), rng, today))
         existing.add(number)
         created_extra += 1
+    # Near-miss records: drawn after the others so the records above come out the same as before.
+    notes = session.scalars(select(DemoRegistryEntry.note)).all()
+    already_near = {
+        note.split("one character from ")[-1].rstrip(").") for note in notes if "one character from" in note
+    }
+    created_near = 0
+    for number in sorted(numbers):
+        if number in existing or number in already_near or rng.random() >= near:
+            continue
+        candidate = near_miss(number, rng, existing | set(numbers))
+        if candidate is None:
+            continue
+        entry = make_entry(candidate, numbers[number], rng, today)
+        entry.note = NEAR_NOTE.format(number=number)
+        session.add(entry)
+        existing.add(candidate)
+        created_near += 1
     session.flush()
-    return SeedOutcome(len(numbers), created_from_videos, created_extra, skipped)
+    return SeedOutcome(len(numbers), created_from_videos, created_extra, skipped, created_near)

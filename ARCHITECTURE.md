@@ -167,7 +167,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                                 from storage/vehicle_crops and
                                 storage/plate_crops
    GET  /api/registry[/{number}]  the FICTIONAL registry, with
-                                its disclaimer in every answer
+                                its disclaimer in every answer;
+                                a record one character away is
+                                a "possible" match, never a match
    GET/PUT /api/settings        the Settings page's values
    GET  /api/jobs               the queue
 
@@ -377,13 +379,43 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
     Analysis at that moment. The events are in the API's
     DetectionDetail (field "events").
 
- 4. Near-match flagging in the registry (future). Axis
-    matches with one character of tolerance by default and
-    documents that it lets look-alikes through. For us: show
-    registry records at edit distance 1 as "possible match",
-    never as a Match, so 0/O, 8/B and 1/I misreads are
-    visible without being asserted. Touches
-    services/registry.py and the registry and detail views.
+ 4. NEAR-MATCH FLAGGING IN THE REGISTRY — done 2026-11-07.
+    Axis matches with one character of tolerance by default
+    and documents that it lets look-alikes through. Here a
+    registry record one edit away from a confirmed number
+    (Levenshtein distance 1: one substitution, insertion or
+    deletion; validation.edit_distance) is a "Possible
+    match": amber, with the record and the differing
+    character named in words ("3 read where the record has
+    8", validation.describe_difference), and never counted
+    or shown as a Match. Only confirmed numbers are looked
+    up (the user's decision); the recognised number itself
+    is never changed. services/registry.py returns a
+    RegistryMatch (record, exact, distance, difference,
+    others: how many more records are also one away); when
+    several records are one away a substitution is preferred
+    over a dropped or extra character, then the lowest
+    number. Lookups normalise case and spaces. Shown in every
+    detections table (amber "Possible match" with a tooltip),
+    the details dialog ("Possible match · number · record"
+    plus the difference), the Demo Registry page (counts
+    "n match · m possible · k no match", the table, and the
+    search answer in an amber banner) and the API
+    (GET /api/registry/{number} answers match, possible,
+    distance, difference and record, with response models;
+    registry_match in the detection endpoints carries the
+    record under "record"). The CSV export has
+    demo_registry_possible (the near record's number) beside
+    demo_registry_match (owner, exact matches only). The
+    seeder adds near-miss records one look-alike character
+    from a share of the confirmed numbers that have no record
+    (seed-registry --near 0.25; deterministic; the note names
+    the source number so a re-run adds nothing), so the state
+    is visible in the demo: on 2026-11-07 it added 3 (and 4
+    exact records, because the confirmed set changed when
+    rope was dropped); the registry holds 29 records, and the
+    Demo Registry page shows 21 match · 3 possible · 22 no
+    match. No pipeline change, no reprocessing.
 
  5. History and registry conveniences (future). "Copy link to
     this search" on Detection History (the filters are
