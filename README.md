@@ -24,7 +24,7 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
    uv run tracko-anpr worker
    ```
 
-   The first job after a start takes about 20 seconds longer while the plate reader loads.
+   The first job after a start takes about 20 seconds longer while the plate reader loads, and the first plate-size check about 30 seconds longer while its two detectors load.
 
 3. **Web app** (a second terminal):
 
@@ -37,6 +37,8 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
    Health check without a browser: `curl -s http://localhost:8080/api/system/status` — `"ready": true`.
 
 5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer exactly the two demo videos in its selector (`clear` and `zoomed-in`; 244 vehicles and 46 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 2.5 to 11 minutes, a 1080p one about twice its length.
+
+How long it takes (rehearsed 2026-11-07 from `wsl --shutdown`): the container is back on its own within 10 seconds of the first WSL command, the worker is ready a few seconds after it is started, and the status API says ready as soon as the web app is up; the whole cold start is under a minute. A restore takes about 15 seconds. A live upload of a 20-second 1080p clip showed its plate-size verdict after 50 seconds (cold worker) and finished processing 70 seconds after "Process Video".
 
 **Recording new videos:** follow [RECORDING_GUIDE.md](RECORDING_GUIDE.md) — plate at least 130 px wide, camera in line with the traffic, 1080p at 30 fps. It is the biggest lever on how many plates get read.
 
@@ -63,6 +65,7 @@ Stop the worker and the web app before restoring. The source videos in `videos/`
 | Browser cannot reach localhost:8080 | Is `tracko-anpr web` running? Try `http://127.0.0.1:8080/`; failing that, the WSL address from `hostname -I` inside WSL. |
 | An upload stays "Queued" | The worker is not running, or is busy with an earlier job; `uv run tracko-anpr jobs` shows the queue. |
 | A job is "Failed" | The reason is on the Upload page and in `uv run tracko-anpr jobs`; a damaged file says so. |
+| The plate-size check stays at "waiting for the worker" | The worker is not running (step 2); it serves checks before jobs, so a running worker answers within a minute. |
 
 ## Usage
 

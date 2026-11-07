@@ -1454,6 +1454,30 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  15 seconds later /api/system/status said ready on all six
  checks with the demo data in place.
 
+ Cold start, second rehearsal (2026-11-07, after the day's
+ changes: cheaper render pass, travel direction, plate-size
+ check, registry near-match and lists, the rebuilt .venv,
+ three more migrations). Following only the runbook from
+ `wsl --shutdown`: the container was listed 6 s after the
+ first WSL command and healthy 2 s later, alembic upgrade
+ head was a no-op at f7b3d9c4e1a2, the worker logged ready
+ within seconds, /api/system/status said ready as soon as
+ the web app answered, db-status showed 2 videos, 244
+ vehicles, 46 confirmed. All seven pages rendered in
+ headless Chromium with no console errors (System Ready,
+ Direction columns, Events, the 1080p annotated player, the
+ registry's 22 match · 3 possible · 21 no match with the
+ Staff list). A live upload of a 20-second zoomed-in cut:
+ registered in 1 s, plate-size verdict after 50 s (cold
+ worker, "largest plates about 138 px"), processed to
+ Completed 68 s after the click, 11 vehicles; the test video
+ was then removed. scripts/restore.sh of the latest backup
+ (20261107-090212) with the services stopped took 15 s and
+ left every figure and the 30 registry records as they were;
+ the services were ready again 7 s after being started.
+ Nothing tripped; the runbook gained the measured times and
+ a row for the plate-size check.
+
  Offline: with every request to any host other than the app
  blocked, all seven pages rendered with the Inter font, the
  icons and the charts; no request left the machine.
