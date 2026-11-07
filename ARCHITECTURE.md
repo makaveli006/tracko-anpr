@@ -1116,9 +1116,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
    Measure real accuracy. For now the dashboard shows
    recognition coverage and confidence only, labelled as not
-   being accuracy. Later: hand-check the true plate numbers
-   for one or two clips and measure the pipeline against
-   them.
+   being accuracy. The step-by-step procedure is the section
+   "HOW TO MEASURE REAL ACCURACY" near the end of this file;
+   it needs a hand-labelled set, which does not exist yet.
 
    A fallback plate reader. The Awiros model passed its test
    on this project's plates, so it is the only reader for
@@ -1666,6 +1666,213 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • Static cameras have no camera car, and plates are seen
      head-on, so coverage should be higher than on dashcam
      footage; 10 seconds is too little to say.
+══════════════════════════════════════════════════════════════
+
+
+══════════════════════════════════════════════════════════════
+ HOW TO MEASURE REAL ACCURACY (procedure, not yet carried out)
+══════════════════════════════════════════════════════════════
+
+ WHY COVERAGE IS NOT ACCURACY
+
+ Coverage answers "of the vehicles we counted, how many ended
+ with a confirmed number?" (48 of 251 = 19.1% on the demo
+ set). It says nothing about whether those 48 numbers are
+ right, whether the 203 others had readable plates we missed,
+ or whether 251 is the true number of vehicles. Accuracy
+ needs a reference the system did not produce: a person
+ writing down the truth for a sample of vehicles. That
+ reference is the "hand-labelled set" (ground truth).
+
+ Three questions, three different measurements:
+
+   1. Reading accuracy    When the system confirms a number,
+                          how often is it the right number?
+   2. Reading recall      Of the vehicles whose plate a person
+                          can read in the video, how many did
+                          the system confirm correctly?
+   3. Counting accuracy   Is "Total Vehicles" right? Vehicles
+                          missed, counted twice (track breaks),
+                          or not vehicles at all.
+
+ Each needs its own labels. Do 1 first: it is the cheapest
+ and the one leadership will ask about ("is that number
+ real?").
+
+ WHAT YOU NEED
+
+   • A processed video (its storage/processed/<name>/ folder
+     and database rows exist).
+   • The History page's Export CSV, or
+     storage/processed/<name>/results.json, which lists every
+     counted vehicle with its track id, time, status and the
+     number the system settled on.
+   • The crops under storage/vehicle_crops/<name>/T<id>.jpg
+     and storage/plate_crops/<name>/T<id>_f<frame>.png, which
+     is what a person looks at to read the truth.
+   • The annotated video, to check a vehicle in context when
+     the crops are not enough.
+   • A spreadsheet or CSV editor. Nothing else.
+
+ HOW BIG A SAMPLE
+
+ Accuracy from n checked items has a margin of error of about
+ ±1/√n at the usual 95% confidence: 30 items → ±18 points,
+ 100 → ±10, 400 → ±5. For a first answer, label every
+ confirmed vehicle of the demo set (48 today) plus 100
+ unconfirmed or not-detected ones; report the margins with
+ the numbers. Never quote accuracy from fewer than 30 items
+ without the margin beside it.
+
+ STEP 1 — EXPORT THE SYSTEM'S ANSWERS
+
+   From the dashboard: Detection History → choose the video
+   (or all) → Export CSV. Or, on the command line:
+     curl -s "http://localhost:8080/api/detections/export.csv?video_id=<id>" > labels/<name>_system.csv
+   Columns: video, track, vehicle_type, first_seen_s,
+   last_seen_s, registration_number, status, confidence,
+   agreeing_frames, readings, reason, demo_registry_match.
+
+ STEP 2 — MAKE THE LABEL SHEET
+
+   Create labels/<name>_truth.csv with these columns, one
+   row per vehicle track from step 1 (copy track, vehicle_type,
+   first_seen_s, registration_number and status across as the
+   system's answer; add the empty label columns):
+
+     track            T<id>, from the export
+     system_number    what the system said (may be empty)
+     system_status    confirmed / unconfirmed / not_detected
+     true_number      what a person reads from the plate crop
+                      and the video; empty if no plate is
+                      legible to a human either
+     plate_legible    yes / partly / no (partly = a human can
+                      read some characters but not all)
+     true_type        Car / Motorcycle / Bus / Truck / Other,
+                      if it differs from the system's type
+     is_vehicle       yes / no (no = the track is not a
+                      vehicle: a sign, a shadow, a person)
+     duplicate_of     T<id> of an earlier track if this is the
+                      same vehicle counted again; else empty
+     note             anything odd (cut off, night, two-line
+                      plate, glare)
+
+   Keep the labels/ folder in git: it is small text, and the
+   point is that the measurement can be repeated after any
+   change to the pipeline.
+
+ STEP 3 — LABEL, WITH RULES WRITTEN DOWN FIRST
+
+   • Read the plate crop(s) first, then the vehicle crop,
+     then the video at first_seen_s if still unsure. Write
+     the number exactly as printed, without spaces, upper
+     case (KL07AB1234). If one character is unreadable, write
+     it as ? and set plate_legible = partly.
+   • Do not look at system_number before writing true_number
+     (cover the column, or label from the crops folder by
+     file name). Reading the system's answer first makes a
+     person agree with it; that is the main way such
+     measurements go wrong.
+   • Two people labelling the same 30 vehicles independently,
+     then comparing, tells you how reliable the labels
+     themselves are. Disagreements are usually two-line
+     plates and 0/O, 8/B, 1/I.
+   • Label every row of the sample, including the ones the
+     system got nothing for: those are where recall is
+     decided.
+
+ STEP 4 — COUNT
+
+   Over rows with is_vehicle = yes and duplicate_of empty:
+
+   Reading accuracy (precision of confirmed numbers)
+     correct    = confirmed and system_number == true_number
+     wrong      = confirmed and system_number != true_number
+     accuracy   = correct / (correct + wrong)
+     Report also the character error rate of the wrong ones
+     (how many characters differ): one wrong character is a
+     very different failure from a made-up number.
+
+   Reading recall (over plates a human can read)
+     readable   = rows with plate_legible = yes
+     found      = readable rows that are confirmed and correct
+     recall     = found / readable
+     Also list readable rows that ended unconfirmed with the
+     right number: those are the system being cautious, not
+     wrong, and say whether the thresholds are too strict.
+
+   Unconfirmed, what are they?
+     Of the unconfirmed rows, how many had the right number as
+     system_number (the guess was right but unsupported), how
+     many wrong, how many had no legible plate at all. This
+     tells whether loosening the rules would gain true
+     numbers or let errors through.
+
+   Counting accuracy (needs the extra labels)
+     false tracks   = is_vehicle = no
+     duplicates     = duplicate_of not empty
+     misses         = vehicles a person sees in the video that
+                      have no track at all. Finding these means
+                      watching the video and counting, at least
+                      for one or two minutes; note the time
+                      window used.
+     counted vehicles vs true vehicles in that window, with
+     the three error kinds listed separately.
+
+   Type accuracy
+     rows where true_type is filled and differs from the
+     system's type, as a share of all labelled vehicles.
+
+   A spreadsheet does all of this with COUNTIFS; a short
+   script (tools/measure_accuracy.py, to be written when the
+   first label sheet exists) should produce the same table so
+   it can be re-run after any change.
+
+ STEP 5 — WRITE IT UP HONESTLY
+
+   Report, for each video and overall:
+     • n labelled, n confirmed, accuracy of confirmed numbers
+       with its ± margin
+     • recall over human-readable plates with its margin
+     • the list of wrong confirmations, each with crop, system
+       number, true number (these are the ones to study)
+     • counting errors by kind, if measured
+     • who labelled, when, with which rules, and the git
+       commit of the pipeline that produced the answers
+   Put the table in this file next to the acceptance run, and
+   only then consider showing an accuracy figure on the
+   Analytics page, labelled with its sample size and date.
+   Until a label sheet exists the dashboard must keep saying
+   "coverage, not accuracy".
+
+ WHAT TO EXPECT, FROM WHAT IS KNOWN SO FAR
+
+   • The OCR smoke test (below) read all 16 clearly legible
+     plates correctly out of 16, so accuracy of confirmed
+     numbers on legible plates should be high; the acceptance
+     run found the confirmation rules reject most single-frame
+     and low-confidence readings, which is what keeps wrong
+     numbers out.
+   • Recall will be the weak figure: most vehicles are seen
+     from the side, cut off, or with plates under 60 px wide.
+     That is a camera placement question more than a model
+     question, and the measurement will show it.
+   • The known failure shapes to look for in the wrong list:
+     a neighbour's plate credited to a vehicle whose box
+     encloses it (Phase 6), two-line plates, 0/O and 8/B,
+     and the state code misread (a Kerala plate once read as
+     DL at 0.86 confidence).
+
+ WHEN THE PIPELINE CHANGES
+
+   The settings are frozen for the demo. After the demo, any
+   change (thresholds, a new plate detector, a reader
+   fallback) is judged by re-running the same label sheet:
+   process the same videos, export, join on track and time
+   (track ids change between runs, so match on first_seen_s
+   within a second and vehicle type), recount. A change is
+   worth keeping only if accuracy does not fall and recall
+   rises, or the other way round, by more than the margins.
 ══════════════════════════════════════════════════════════════
 
 
