@@ -1,0 +1,41 @@
+# Source and test videos (several gigabytes)
+videos/
+
+# Downloaded model weights (see pretrained-numberplate-weight/README.md for sources)
+pretrained-numberplate-weight/**/*.pt
+pretrained-numberplate-weight/**/*.onnx
+
+# Model weights used by the application
+models/*
+!models/.gitkeep
+
+# Weights that Ultralytics may download into the project root
+/*.pt
+/*.onnx
+
+# Ultralytics output and downloaded training data
+runs/
+datasets/
+
+# Uploaded and generated files
+storage/*/*
+!storage/*/.gitkeep
+
+# Pinned PaddleOCR source checkout for the OCR environment
+ocr/vendor/*
+!ocr/vendor/.gitkeep
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Backups made by scripts/backup.sh (database dump and storage archive)
+backups/

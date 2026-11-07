@@ -1,0 +1,59 @@
+[project]
+name = "tracko-anpr"
+version = "0.1.0"
+description = "Proof of concept: Indian vehicle detection, tracking and number plate recognition on uploaded MP4 videos."
+readme = "README.md"
+authors = [
+    { name = "Subin Krishna K T", email = "subin@ontash.net" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi==0.162.0",
+    "lap>=0.5.12",
+    "nicegui>=4.0.0",
+    "psycopg[binary]>=3.3.8",
+    "safetensors>=0.8.0",
+    "sqlalchemy>=2.1.8",
+    "torch==2.14.1",
+    "torchvision>=0.29.1",
+    "ultralytics>=8.4.203",
+]
+
+[project.scripts]
+tracko-anpr = "tracko_anpr:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+# PyTorch must be the CUDA 12.6 build: the installed NVIDIA driver (572.16) supports
+# up to CUDA 12.8, and PyPI's default torch wheels need CUDA 13.
+# `explicit = true` means only the packages listed under [tool.uv.sources] use this index.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+# Third-party code and data folders are not ours to lint.
+extend-exclude = ["ocr/vendor", "pretrained-numberplate-weight", "videos", "storage", "models"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

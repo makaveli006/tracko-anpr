@@ -1,0 +1,14 @@
+Alembic migrations for the tracko-anpr database (PostgreSQL 18).
+
+Run from the project root, in WSL, with the database container up:
+
+    uv run alembic upgrade head        apply every migration
+    uv run alembic current             which revision the database is at
+    uv run alembic downgrade base      remove everything (tests only)
+
+After changing src/tracko_anpr/db/models.py:
+
+    uv run alembic revision --autogenerate -m "short description"
+
+then read the generated file in versions/ before applying it: autogenerate misses
+some changes (renames, server defaults) and must be checked by hand.

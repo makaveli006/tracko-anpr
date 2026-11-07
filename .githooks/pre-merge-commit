@@ -1,0 +1,41 @@
+#!/bin/sh
+# Git hook (not a Claude Code hook). Enable once per clone with:
+#     git config core.hooksPath .githooks
+#
+# Stops a local merge of `development` into `main` before the merge commit is made,
+# so the refusal comes early and with a clear message. Fast-forward merges do not
+# reach this hook; .githooks/reference-transaction catches those.
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+[ "$branch" = "main" ] || exit 0
+
+dev=$(git rev-parse -q --verify 'refs/heads/development^{commit}' 2>/dev/null) || exit 0
+git_dir=$(git rev-parse --git-dir) || exit 0
+[ -f "$git_dir/MERGE_HEAD" ] || exit 0
+
+# main already contains development: this merge brings nothing new from it.
+git merge-base --is-ancestor "$dev" HEAD 2>/dev/null && exit 0
+
+origin=$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null)
+
+while read -r incoming; do
+    # The incoming commit does not contain development: fine.
+    git merge-base --is-ancestor "$dev" "$incoming" 2>/dev/null || continue
+
+    # Allowed: merging what GitHub already has on main (a normal pull).
+    if [ -n "$origin" ] && git merge-base --is-ancestor "$incoming" "$origin" 2>/dev/null; then
+        continue
+    fi
+
+    echo "" >&2
+    echo "BLOCKED by .githooks/pre-merge-commit:" >&2
+    echo "  'development' must not be merged into 'main' locally." >&2
+    echo "  Open a pull request from development to main on GitHub, merge it there," >&2
+    echo "  then run 'git pull' on main." >&2
+    echo "  Undo this half-done merge with:  git merge --abort" >&2
+    echo "  See .claude/rules/github.md." >&2
+    echo "" >&2
+    exit 1
+done < "$git_dir/MERGE_HEAD"
+
+exit 0

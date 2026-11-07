@@ -1,0 +1,87 @@
+#!/bin/sh
+# Git hook (not a Claude Code hook). Enable once per clone with:
+#     git config core.hooksPath .githooks
+#
+# Blocks two things at the moment git tries to change a branch:
+#   1. Deleting (or renaming away) the local `main` or `development` branch.
+#   2. Bringing `development` into `main` locally, by merge, fast-forward or reset.
+#      `main` may only receive `development` through a pull request on GitHub;
+#      pulling that result down from GitHub afterwards is allowed.
+#
+# Git calls this hook for every reference update. It receives the state as $1 and
+# one line per reference on stdin: "<old-value> <new-value> <ref-name>".
+# Exiting non-zero in the "prepared" state cancels the update.
+
+[ "$1" = "prepared" ] || exit 0
+
+is_zero() {
+    case "$1" in
+        *[!0]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# True when git is only tidying up: `git gc` / `git pack-refs` copy a branch into the
+# packed-refs file and then remove the now-redundant loose file. The branch still
+# exists afterwards. A real deletion holds packed-refs.lock at this point; tidying
+# does not, and the packed copy is already in place with the same value.
+is_packed_refs_cleanup() {
+    cleanup_old=$1
+    cleanup_ref=$2
+    is_zero "$cleanup_old" && return 1
+    common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+    [ -e "$common_dir/packed-refs.lock" ] && return 1
+    grep -qxF "$cleanup_old $cleanup_ref" "$common_dir/packed-refs" 2>/dev/null
+}
+
+while read -r old new ref; do
+    case "$ref" in
+        refs/heads/main | refs/heads/development) ;;
+        *) continue ;;
+    esac
+    branch=${ref#refs/heads/}
+
+    # Rule 1: no local deletion of main or development.
+    if is_zero "$new"; then
+        is_packed_refs_cleanup "$old" "$ref" && continue
+        echo "" >&2
+        echo "BLOCKED by .githooks/reference-transaction:" >&2
+        echo "  The local '$branch' branch must not be deleted or renamed." >&2
+        echo "  See .claude/rules/github.md." >&2
+        echo "" >&2
+        exit 1
+    fi
+
+    # Rule 2: development must not be brought into main locally.
+    [ "$branch" = "main" ] || continue
+    dev=$(git rev-parse -q --verify 'refs/heads/development^{commit}' 2>/dev/null) || continue
+
+    # The new main does not contain development: nothing to check.
+    git merge-base --is-ancestor "$dev" "$new" 2>/dev/null || continue
+
+    # main already contained development before this update: nothing new came in.
+    if ! is_zero "$old" && git merge-base --is-ancestor "$dev" "$old" 2>/dev/null; then
+        continue
+    fi
+
+    # Allowed: main is only catching up with what GitHub already has on main.
+    origin=$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null)
+    if [ -n "$origin" ] && git merge-base --is-ancestor "$new" "$origin" 2>/dev/null; then
+        continue
+    fi
+
+    echo "" >&2
+    echo "BLOCKED by .githooks/reference-transaction:" >&2
+    echo "  'development' must not be merged into 'main' locally." >&2
+    echo "  Open a pull request from development to main on GitHub, merge it there," >&2
+    echo "  then run 'git pull' on main." >&2
+    echo "  If a merge is left half-done, undo it with:  git merge --abort" >&2
+    echo "  If files now show as changed (after a blocked fast-forward or reset)," >&2
+    echo "  put them back, keeping your own uncommitted edits, with:" >&2
+    echo "      git read-tree -m -u \"\$(git write-tree)\" HEAD" >&2
+    echo "  See .claude/rules/github.md." >&2
+    echo "" >&2
+    exit 1
+done
+
+exit 0
