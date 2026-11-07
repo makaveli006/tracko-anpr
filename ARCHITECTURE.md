@@ -151,13 +151,17 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    GET  /api/analytics          Analytics across all videos
    GET  /api/detections         Detection History: every
                                 video, filtered by video,
-                                status, type, number search;
-                                sorted; paged
+                                status, type, travel direction
+                                (approach = towards | away |
+                                none), number search; sorted;
+                                paged
    GET  /api/detections/export.csv     the same rows as CSV
    GET  /api/detections/{track_pk}     one detection in full,
                                 with every plate observation
-                                (the multi-frame evidence) and
-                                its fictional registry match
+                                (the multi-frame evidence), its
+                                event lifecycle (new / read /
+                                confirmed / corrected / lost)
+                                and its fictional registry match
    GET  /api/images/{path}      vehicle and plate crops, only
                                 from storage/vehicle_crops and
                                 storage/plate_crops
@@ -272,15 +276,69 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
     pixel counter. Touches the Upload page and a small
     sampling service; no change to the pipeline's results.
 
- 3. Direction per track and New / Update / Lost events
-    (future). The per-frame boxes already give a trajectory;
-    a direction (towards / away, left / right) per vehicle
-    enables entry and exit counting in Detections Over Time
-    and History, and the Verifier's event lifecycle (first
-    read, corrected read, last sighting with direction) can
-    be shown in the details dialog from the observations we
-    already store. Touches results, metrics and the pages;
-    reads existing data only.
+ 3. DIRECTION PER TRACK AND NEW / UPDATE / LOST EVENTS —
+    done 2026-11-07.
+    Direction. pipeline/direction.py reads each track's
+    travel direction from the boxes the tracker already
+    produced, with no model: the median box height of the
+    first fifth of the track against the last fifth (ratio
+    at least 1.25 → "towards" the camera, at most 1/1.25 →
+    "away"), and the median box centre's shift as a share of
+    the frame width (at least 10% → "right" or "left"). Both
+    parts may be set ("Towards camera, left"); neither →
+    "Undetermined" (a vehicle that hardly moved, or a track
+    too short to compare). Medians, because the first and
+    last boxes of a track are the noisiest. Ratios and
+    fractions only, so nothing depends on resolution or
+    frame rate. The two thresholds (DirectionRules) are NOT
+    part of the Phase 7 frozen set: changing them changes
+    labels, never a count or a plate; they are recorded in
+    results.json's settings. The user chose the wording
+    "Towards / Away from camera" over Axis's Entry / Exit
+    because the demo cameras are roadside phones, not gate
+    cameras. Stored on vehicle_tracks as approach and
+    sideways (migration d41ec7a0b3f2; the column is called
+    sideways because "lateral" is a reserved word in
+    PostgreSQL). Shown: a Direction column in every
+    detections table, a Direction filter on Detection
+    History (URL parameter dir, API parameter approach =
+    towards | away | none), a "direction" column in the CSV
+    export, and Detections Over Time on the Overview as
+    stacked bars (towards, away, undetermined per 10-second
+    bucket; metrics.detections_over_time_by_direction, which
+    adds up bucket for bucket to detections_over_time).
+    Limits: direction is relative to the picture, so a
+    vehicle crossing the frame is only "left" or "right"; a
+    stopped vehicle is "Undetermined"; the two demo videos
+    were processed again to carry it (results otherwise
+    identical), and the upload 214173 keeps NULLs, shown as
+    "Undetermined". Measured on the demo set: zoomed-in has
+    22 of 59 counted vehicles undetermined, clear 86 of 185.
+    Those 86 are not a threshold problem: their median
+    height ratio is 0.99 with no sideways shift, their
+    median track lasts 1.4 s, 72 are motorcycles and 67 are
+    unconfirmed, i.e. mostly short fragments of tracks and
+    two-wheelers waiting at the roadside; lowering the
+    ratio to 1.15 would relabel only 12 of them. Expect the
+    undetermined share to fall with longer tracks, not with
+    looser thresholds.
+    Events. The details dialog has an "Events" list, the
+    Verifier's New / Update / Lost lifecycle reconstructed
+    at read time by services/results.py:lifecycle from rows
+    that already exist (nothing is logged while a video is
+    processed): "new" at the first frame; "read" at the first
+    reading above the validator's 0.6 confidence floor and
+    again at every later reading with a different text (the
+    "updates"); "confirmed" at the observation where the
+    agreeing readings of the final number (as written or
+    after look-alike correction) reach the validator's
+    minimum of 2 with one of them at 0.85 or more, for
+    confirmed tracks only; "lost" at the last frame with the
+    direction; and "corrected" for each operator correction,
+    the one kind with a wall-clock time rather than a video
+    time. Clicking an event with a video time opens Video
+    Analysis at that moment. The events are in the API's
+    DetectionDetail (field "events").
 
  4. Near-match flagging in the registry (future). Axis
     matches with one character of tolerance by default and
@@ -865,7 +923,10 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                        job), type, best confidence, first and
                        last frame and second, countable,
                        camera_car, same_vehicle_as,
-                       counts_as_vehicle, vehicle crop path
+                       counts_as_vehicle, vehicle crop path,
+                       and the travel direction as approach
+                       (towards / away / NULL) and sideways
+                       (left / right / NULL)
    plate_observations  one per plate examined: frame, box,
                        detector confidence, reading, reader
                        confidence, unreadable, second decoder
@@ -1021,6 +1082,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • Timestamp
    • Tracking ID
    • Vehicle category
+   • Travel direction (towards / away from the camera,
+     left / right), also a filter
    • Plate image
    • Recognized text
    • Recognition confidence
@@ -1158,9 +1221,11 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      and detector confidence, plate width) and the fictional
      registry match or "No match", with the disclaimer.
      "View All" goes to Detection History for that video.
-   • Detections Over Time: ECharts line with a faint green
-     area, new vehicles per 10-second bucket of video time;
-     the buckets add up to Total Vehicles.
+   • Detections Over Time: ECharts stacked bars per
+     10-second bucket of video time, split by travel
+     direction (towards the camera in bright green, away in
+     dark green, undetermined in grey, with a legend); the
+     buckets add up to Total Vehicles.
    • Empty states: with nothing processed, the cards read 0,
      the player, charts and table say so, and the selector
      and scope switch are disabled; nothing is invented.

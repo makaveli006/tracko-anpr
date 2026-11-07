@@ -28,6 +28,9 @@ CATEGORY_COLOURS = {"Car": "#27C443", "Motorcycle": "#FACC15", "Bus": "#F59E0B",
 CHART_TEXT = "#858585"
 CHART_GRID = "#262626"
 LINE_GREEN = "#4ADE36"
+BAR_TOWARDS = "#4ADE36"  # --accent-green-bright
+BAR_AWAY = "#166522"  # --accent-green-dark
+BAR_OTHER = "#858585"  # --text-muted
 
 
 class OverviewPage:
@@ -260,7 +263,7 @@ class OverviewPage:
         with ui.element("div").classes("w-full mt-2"):
             detections_table(
                 data.recent,
-                ("time", "track", "vehicle_type", "registration_number", "confidence", "status", "plate"),
+                ("time", "track", "vehicle_type", "direction", "registration_number", "confidence", "status", "plate"),
                 self.row_clicked,
             )
         ui.label("Click a row to jump the video to that moment and see the details.").classes("tk-muted text-xs mt-1")
@@ -279,17 +282,28 @@ class OverviewPage:
                 ui.label("No vehicles to plot")
             return
         labels = [f"{start // 60:02d}:{start % 60:02d}" for start, _ in buckets]
-        values = [count for _, count in buckets]
+        split = found.detections_by_direction or [(start, 0, 0, count) for start, count in buckets]
+
+        def bars(name: str, index: int, colour: str) -> dict:
+            return {
+                "name": name,
+                "type": "bar",
+                "stack": "vehicles",
+                "data": [row[index] for row in split],
+                "itemStyle": {"color": colour},
+                "barMaxWidth": 18,
+            }
+
         ui.echart(
             {
                 "backgroundColor": "transparent",
-                "grid": {"left": 44, "right": 16, "top": 20, "bottom": 44},
+                "grid": {"left": 44, "right": 16, "top": 28, "bottom": 44},
                 "tooltip": {
                     "trigger": "axis",
                     "backgroundColor": "#202020",
                     "borderColor": "#363636",
                     "textStyle": {"color": "#f5f5f5"},
-                    "axisPointer": {"lineStyle": {"color": "#4a4a4a"}},
+                    "axisPointer": {"type": "shadow"},
                 },
                 "xAxis": {
                     "type": "category",
@@ -312,22 +326,24 @@ class OverviewPage:
                     "axisLabel": {"color": CHART_TEXT},
                     "splitLine": {"lineStyle": {"color": CHART_GRID}},
                 },  # fmt: skip
+                "legend": {
+                    "data": ["Towards camera", "Away from camera", "Undetermined"],
+                    "top": 0,
+                    "right": 8,
+                    "textStyle": {"color": CHART_TEXT, "fontSize": 11},
+                    "itemWidth": 10,
+                    "itemHeight": 10,
+                },
                 "series": [
-                    {
-                        "type": "line",
-                        "data": values,
-                        "smooth": 0.25,
-                        "symbol": "circle",
-                        "symbolSize": 5,
-                        "lineStyle": {"color": LINE_GREEN, "width": 2},
-                        "itemStyle": {"color": LINE_GREEN},
-                        "areaStyle": {"color": "rgba(74, 222, 54, 0.12)"},
-                    }  # fmt: skip
+                    bars("Towards camera", 1, BAR_TOWARDS),
+                    bars("Away from camera", 2, BAR_AWAY),
+                    bars("Undetermined", 3, BAR_OTHER),
                 ],
             }
         ).classes("w-full").style("height: 250px")
         ui.label(
-            "New vehicles per 10-second bucket, each counted once where first seen; they add up to Total Vehicles"
+            "New vehicles per 10-second bucket by travel direction, each counted once where first seen; "
+            "they add up to Total Vehicles"
         ).classes("tk-muted text-xs")
 
 

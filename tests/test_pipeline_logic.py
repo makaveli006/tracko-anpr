@@ -19,6 +19,7 @@ from tracko_anpr.pipeline.annotate import (
     plate_boxes_by_frame,
     render_annotated_video,
 )
+from tracko_anpr.pipeline.direction import Direction, DirectionRules, direction_label, short_direction, travel_direction
 from tracko_anpr.pipeline.results import (
     format_timestamp,
     frame_time,
@@ -235,6 +236,52 @@ def test_writing_part_of_a_video_takes_only_that_much_audio(tmp_path: Path):
             writer.write(np.zeros((48, 64, 3), dtype=np.uint8))
     assert probe_video(output).frame_count == 10
     assert _audio_seconds(output) < 0.5
+
+
+# --- travel direction from the boxes ----------------------------------------------------------------
+
+
+def _track(count: int, height_from: float, height_to: float, x_from: float, x_to: float):
+    """Boxes whose height and x-centre change evenly from the first frame to the last."""
+    boxes = []
+    for i in range(count):
+        t = i / max(count - 1, 1)
+        height = height_from + (height_to - height_from) * t
+        centre = x_from + (x_to - x_from) * t
+        boxes.append((i, (centre - 40.0, 500.0 - height, centre + 40.0, 500.0)))
+    return boxes
+
+
+def test_a_vehicle_that_grows_comes_towards_the_camera_and_one_that_shrinks_goes_away():
+    assert travel_direction(_track(30, 60, 200, 960, 960), 1920) == Direction("towards", None)
+    assert travel_direction(_track(30, 200, 60, 960, 960), 1920) == Direction("away", None)
+    assert travel_direction(_track(30, 100, 110, 960, 960), 1920) == Direction(None, None)  # 10%: not enough
+
+
+def test_sideways_travel_is_left_or_right_as_a_share_of_the_frame_width():
+    assert travel_direction(_track(30, 100, 100, 200, 800), 1920) == Direction(None, "right")
+    assert travel_direction(_track(30, 100, 100, 800, 200), 1920) == Direction(None, "left")
+    assert travel_direction(_track(30, 100, 100, 900, 1000), 1920) == Direction(None, None)  # 5% of the width
+    assert travel_direction(_track(30, 60, 200, 1500, 400), 1920) == Direction("towards", "left")
+
+
+def test_direction_uses_medians_so_one_bad_first_box_does_not_decide():
+    boxes = _track(40, 100, 100, 960, 960)
+    boxes[0] = (0, (900.0, 0.0, 1020.0, 500.0))  # a 500 px tall box in the first frame only
+    assert travel_direction(boxes, 1920) == Direction(None, None)
+    assert travel_direction(boxes[:1], 1920) == Direction(None, None)  # one box: nothing to compare
+    assert travel_direction([], 1920) == Direction(None, None)
+    strict = DirectionRules(approach_ratio=1.05)
+    assert travel_direction(_track(30, 100, 110, 960, 960), 1920, strict) == Direction("towards", None)
+
+
+def test_direction_words():
+    assert direction_label("towards", None) == "Towards camera"
+    assert direction_label("away", "left") == "Away from camera, left"
+    assert direction_label(None, "right") == "Right"
+    assert direction_label(None, None) == "Undetermined"
+    assert Direction("towards", "right").label == "Towards camera, right"
+    assert short_direction("away", None) == "Away" and short_direction(None, None) == "—"
 
 
 # --- plate outlines without the detector, and the scaled-down annotated copy ----------------------

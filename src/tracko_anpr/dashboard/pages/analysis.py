@@ -141,7 +141,17 @@ class AnalysisPage:
         with ui.element("div").classes("w-full mt-2").style("max-height: 520px; overflow: auto"):
             detections_table(
                 self.rows,
-                ("time", "track", "vehicle_type", "registration_number", "confidence", "status", "registry", "plate"),
+                (
+                    "time",
+                    "track",
+                    "vehicle_type",
+                    "direction",
+                    "registration_number",
+                    "confidence",
+                    "status",
+                    "registry",
+                    "plate",
+                ),
                 self.row_clicked,
             )
         ui.label("Click a vehicle to jump the video to its first appearance and see the details.").classes(

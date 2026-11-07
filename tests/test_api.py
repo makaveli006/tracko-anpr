@@ -255,9 +255,21 @@ def test_one_detection_in_full_with_its_frame_by_frame_evidence(client, app, set
     detail = client.get(f"/api/detections/{track_pk}").json()
     assert detail["detection"]["registration_number"] == "KL07AB1234"
     assert detail["frames_seen"] == 91
-    assert len(detail["observations"]) == 1
-    assert detail["observations"][0]["text"] == "KL07AB1234"
+    assert len(detail["observations"]) == 3
+    assert detail["observations"][1]["text"] == "KL07AB1234"
     assert detail["observations"][0]["crop_path"].startswith("storage/plate_crops/")
+    assert detail["detection"]["approach"] == "towards" and detail["detection"]["sideways"] is None
+    # The lifecycle, reconstructed from the rows: first seen, a look-alike reading (Z for 2, which the
+    # validator counts as agreeing), the right one, confirmed at that second agreeing frame, last seen.
+    assert [(e["kind"], e["frame"]) for e in detail["events"]] == [
+        ("new", 0),
+        ("read", 20),
+        ("read", 30),
+        ("confirmed", 30),
+        ("lost", 90),
+    ]
+    assert detail["events"][-1]["text"] == "Last seen · Towards camera"
+    assert detail["events"][1]["text"].startswith("Read as KL07AB1Z34")
     assert client.get("/api/detections/99999").status_code == 404
 
 
@@ -272,10 +284,15 @@ def test_history_filters_sorts_pages_and_exports(client, app, settings):
     assert client.get("/api/detections?limit=3&offset=6").json()["rows"].__len__() == 2
     by_confidence = client.get("/api/detections?sort=confidence&descending=false").json()["rows"]
     assert by_confidence[0]["detection"]["status"] == "not_detected"
+    assert client.get("/api/detections?approach=away").json()["total"] == 2
+    assert client.get("/api/detections?approach=none").json()["total"] == 2
+    assert client.get("/api/detections?approach=sideways").status_code == 422
     csv_text = client.get("/api/detections/export.csv?status=confirmed").text
     lines = csv_text.strip().splitlines()
-    assert lines[0].startswith("video,track,vehicle_type")
+    assert lines[0].startswith("video,track,vehicle_type,first_seen_s,last_seen_s,direction,registration_number")
     assert len(lines) == 5 and "KL07AB1234" in csv_text
+    assert any(',"Towards camera, left",KL10CD5678,' in line for line in lines)
+    assert client.get("/api/detections/export.csv?approach=away").text.strip().splitlines().__len__() == 3
 
 
 def test_a_confirmed_number_in_the_demo_registry_shows_as_a_match(client, app, settings):

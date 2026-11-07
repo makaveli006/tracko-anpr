@@ -31,6 +31,7 @@ import cv2
 from tracko_anpr.config import Settings
 from tracko_anpr.pipeline.annotate import PlateLabel, plate_boxes_by_frame, render_annotated_video
 from tracko_anpr.pipeline.cropping import Box, best_frames, box_area, crop_region
+from tracko_anpr.pipeline.direction import Direction, DirectionRules, travel_direction
 from tracko_anpr.pipeline.ocr_client import OcrClient
 from tracko_anpr.pipeline.plates import PlateDetector, cut_plate
 from tracko_anpr.pipeline.results import frame_time, write_detections_csv
@@ -101,6 +102,8 @@ class PipelineOptions:
     """Margin kept around a vehicle box when it is cut out, as a fraction of the box."""
     track_rules: TrackRules = field(default_factory=TrackRules)
     validation: ValidationRules = field(default_factory=ValidationRules)
+    direction: DirectionRules = field(default_factory=DirectionRules)
+    """How a track's travel direction is read from its boxes; outside the frozen settings (labels only)."""
     render_video: bool = True
     annotated_max_height: int | None = 1080
     """The annotated copy is scaled down to this height when the input is taller (None: never).
@@ -146,6 +149,8 @@ class VehicleRecord:
     sightings: list[PlateSighting] = field(default_factory=list)
     same_vehicle_as: int | None = None
     """Track id of an earlier track that turned out to be this same vehicle (same confirmed number)."""
+    direction: Direction = field(default_factory=Direction)
+    """Which way it travelled (towards / away from the camera, left / right), from its boxes."""
 
     @property
     def status(self) -> str:
@@ -374,6 +379,7 @@ def run_pipeline(
             best_confidence=summary.best_confidence,
             countable=not camera_car and is_countable(observations, info.height, fps, options.track_rules),
             camera_car=camera_car,
+            direction=travel_direction(observations, info.width, options.direction),
         )
     countable = [vehicle for vehicle in vehicles.values() if vehicle.countable]
 
@@ -564,6 +570,8 @@ def run_pipeline(
             "confirm_confidence": options.validation.confirm_confidence,
             "min_observations": options.validation.min_observations,
             "consensus_share": options.validation.consensus_share,
+            "direction_approach_ratio": options.direction.approach_ratio,
+            "direction_sideways_fraction": options.direction.sideways_fraction,
         },
         "plates_examined": len(sightings),
         "vehicles": [_vehicle_document(vehicle, fps, settings.root) for vehicle in ordered],
@@ -599,6 +607,11 @@ def _vehicle_document(vehicle: VehicleRecord, fps: float, root: Path) -> dict:
         "camera_car": vehicle.camera_car,
         "same_vehicle_as": vehicle.same_vehicle_as,
         "counts_as_vehicle": vehicle.counts_as_vehicle,
+        "direction": {
+            "approach": vehicle.direction.approach,
+            "sideways": vehicle.direction.sideways,
+            "label": vehicle.direction.label,
+        },
         "status": vehicle.status,
         "plate": None
         if decision is None

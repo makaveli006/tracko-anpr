@@ -20,6 +20,13 @@ from tracko_anpr.services.registry import DISCLAIMER
 from tracko_anpr.services.results import DetectionDetail
 
 OPERATOR_KEY = "tk_operator"  # the operator's name, remembered in the browser's local storage
+EVENT_ICONS = {
+    "new": "fiber_manual_record",
+    "read": "visibility",
+    "confirmed": "check_circle",
+    "corrected": "edit",
+    "lost": "logout",
+}
 
 
 def image_url(path: str | None) -> str | None:
@@ -97,7 +104,7 @@ async def show_detection(
                 with ui.row().classes("items-center gap-3 no-wrap"):
                     ui.icon(VEHICLE_ICONS.get(d.vehicle_type, "directions_car")).classes("text-3xl tk-green")
                     with ui.column().classes("gap-0"):
-                        ui.label(f"T{d.track_id} · {d.vehicle_type}").classes("tk-card-title")
+                        ui.label(f"T{d.track_id} · {d.vehicle_type} · {d.direction_label}").classes("tk-card-title")
                         ui.label(
                             f"{d.video_name} · seen {video_time(d.first_seen_s)} to {video_time(d.last_seen_s)}"
                         ).classes("tk-secondary text-sm")
@@ -131,6 +138,7 @@ async def show_detection(
 
                 with ui.column().classes("gap-3").style("flex: 1 1 0; min-width: 0"):
                     facts(d, current)
+                    events(d)
                     observations()
 
     def facts(d, current) -> None:
@@ -179,6 +187,28 @@ async def show_detection(
                 else:
                     ui.label("Not looked up (number not confirmed)").classes("tk-muted")
                 ui.label(DISCLAIMER).classes("tk-muted text-xs")
+
+    def events(d) -> None:
+        """The track's life on the video, in the manner of a New / Update / Lost event stream."""
+        ui.label("Events").classes("tk-muted text-xs uppercase mt-1")
+        with ui.element("div").classes("tk-events w-full"):
+            for e in detail.events:
+                row = ui.element("div").classes(f"tk-event {e.kind}")
+                with row:
+                    ui.icon(EVENT_ICONS.get(e.kind, "circle")).classes("tk-event-icon")
+                    moment = video_time(e.time_s) if e.time_s is not None else when(e.at, seconds=True)
+                    ui.label(moment).classes("tk-mono tk-event-time")
+                    ui.label(e.text).classes("tk-event-text")
+                    ui.label(f"frame {e.frame:,}" if e.frame is not None else "wall-clock time").classes(
+                        "tk-muted text-xs"
+                    )
+                if open_in_analysis and e.time_s is not None:
+                    target = f"/analysis?video={d.video_id}&t={max(0.0, e.time_s - 0.5):.2f}"
+                    row.classes("clickable").on("click", lambda _, url=target: ui.navigate.to(url))
+        ui.label(
+            "Reconstructed from the stored frames and readings: nothing is logged while a video is processed. "
+            "A correction is the only event with a wall-clock time."
+        ).classes("tk-muted text-xs")
 
     def observations() -> None:
         ui.label(f"Multi-frame observations ({len(detail.observations)} plates examined)").classes(

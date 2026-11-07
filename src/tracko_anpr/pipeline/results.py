@@ -6,6 +6,7 @@ import csv
 import json
 from pathlib import Path
 
+from tracko_anpr.pipeline.cropping import Box
 from tracko_anpr.pipeline.tracking import TrackingRun, format_track_id
 from tracko_anpr.pipeline.video import VideoInfo
 
@@ -45,8 +46,14 @@ def write_detections_csv(path: str | Path, info: VideoInfo, run: TrackingRun) ->
 
 
 def track_records(info: VideoInfo, run: TrackingRun) -> list[dict]:
-    """One summary per track, in order of first appearance."""
+    """One summary per track, in order of first appearance, with the direction read from its boxes."""
+    from tracko_anpr.pipeline.direction import travel_direction
+
     fps = info.fps_float
+    history: dict[int, list[tuple[int, Box]]] = {}
+    for frame_index, tracked in enumerate(run.frames):
+        for vehicle in tracked:
+            history.setdefault(vehicle.track_id, []).append((frame_index, vehicle.box))
     ordered = sorted(run.registry.tracks.values(), key=lambda track: (track.first_frame, track.track_id))
     return [
         {
@@ -59,6 +66,7 @@ def track_records(info: VideoInfo, run: TrackingRun) -> list[dict]:
             "last_seen_s": round(frame_time(track.last_frame, fps), 3),
             "frames_seen": track.frames_seen,
             "best_confidence": round(track.best_confidence, 4),
+            "direction": travel_direction(history.get(track.track_id, []), info.width).label,
         }
         for track in ordered
     ]

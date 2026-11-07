@@ -155,6 +155,10 @@ class VehicleTrack(Base):
     counts_as_vehicle: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     """countable and not a repeat: adds one to Total Vehicles."""
     vehicle_crop_path: Mapped[str | None] = mapped_column(Text)
+    approach: Mapped[str | None] = mapped_column(String(10))
+    """'towards' or 'away' (from the camera), from the track's boxes (pipeline/direction.py); NULL: undetermined."""
+    sideways: Mapped[str | None] = mapped_column(String(10))
+    """'left' or 'right' across the picture; NULL when the vehicle hardly moved sideways."""
 
     job: Mapped[ProcessingJob] = relationship(back_populates="tracks")
     observations: Mapped[list[PlateObservation]] = relationship(back_populates="track", cascade="all, delete-orphan")

@@ -228,8 +228,11 @@ def detection_history(
     descending: bool = True,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=1000),
+    approach: str | None = Query(None, pattern="^(towards|away|none)$"),
 ):
-    return results.detection_history(session, video_id, status, vehicle_type, search, sort, descending, offset, limit)
+    return results.detection_history(
+        session, video_id, status, vehicle_type, search, sort, descending, offset, limit, approach
+    )
 
 
 @router.get("/detections/export.csv")
@@ -239,9 +242,10 @@ def export_detections(
     status: str | None = None,
     vehicle_type: str | None = None,
     search: str | None = None,
+    approach: str | None = Query(None, pattern="^(towards|away|none)$"),
 ):
     text = results.export_history_csv(
-        session, video_id=video_id, status=status, vehicle_type=vehicle_type, search=search
+        session, video_id=video_id, status=status, vehicle_type=vehicle_type, search=search, approach=approach
     )
     headers = {"Content-Disposition": 'attachment; filename="detections.csv"'}
     return PlainTextResponse(text, media_type="text/csv", headers=headers)

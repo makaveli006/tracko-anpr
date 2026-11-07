@@ -15,6 +15,7 @@ COLUMNS = {
     "video": "Video",
     "track": "Track ID",
     "vehicle_type": "Vehicle",
+    "direction": "Direction",
     "registration_number": "Registration Number",
     "confidence": "Confidence",
     "status": "Validation",
@@ -32,6 +33,22 @@ def corrected_value(shown: str, original: str, by: str) -> ui.element:
             f"Corrected from {original}" + (f" by {by}" if by else "") + ". The figures use the system's result."
         )
     return holder
+
+
+DIRECTION_ICONS = {"towards": "arrow_downward", "away": "arrow_upward"}
+"""Towards the camera is down the picture, away from it is up; sideways-only travel gets a horizontal arrow."""
+
+
+def direction_cell(approach: str | None, sideways: str | None, text: str) -> None:
+    """The travel direction as a small arrow and the short words; a muted dash when undetermined."""
+    if approach is None and sideways is None:
+        ui.label("—").classes("tk-muted")
+        return
+    icon = DIRECTION_ICONS.get(approach or "", "arrow_back" if sideways == "left" else "arrow_forward")
+    with ui.row().classes("items-center gap-1 no-wrap"):
+        ui.icon(icon).classes("text-base tk-green")
+        ui.label(text)
+        ui.tooltip("Worked out from how the vehicle's box grew, shrank or moved across the picture.")
 
 
 def detections_table(
@@ -79,6 +96,8 @@ def detections_table(
                                         corrected_value(shown_type, d.vehicle_type, row.correction.corrected_by)
                                     else:
                                         ui.label(d.vehicle_type)
+                            elif column == "direction":
+                                direction_cell(d.approach, d.sideways, d.direction_short)
                             elif column == "registration_number":
                                 shown_number = row.correction.corrected_number if row.correction else None
                                 if shown_number:
