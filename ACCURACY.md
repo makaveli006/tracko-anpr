@@ -53,7 +53,7 @@ Two jeeps, a Mahindra Thar and a small red taxi were labelled Truck. An auto-ric
 
 ## What this does not tell us
 
-- **It covers one video.** The other demo video (`clear`) and the newer upload (`kdy`) have not been checked.
+- **It covers one video, and not our main demo video.** `kdy`, now the main video, and `clear` have not been checked.
 - **It is our most favourable video.** `zoomed-in` was filmed closest to the traffic. The system confirmed a number for 27% of its vehicles, against 16% for `clear` and 2% for `kdy`, so other footage may well do worse.
 - **Only 21 plates had a human check.** The other readings are the AI assistant's alone. A full human check would make the result stronger.
 - **Vehicles the system missed completely were not counted.** Finding those needs someone to watch the whole video.

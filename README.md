@@ -36,7 +36,7 @@ cd /mnt/c/Users/ontashai/Desktop/tracko-anpr
 
    Health check without a browser: `curl -s http://localhost:8080/api/system/status` — `"ready": true`.
 
-5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should offer exactly the two demo videos in its selector (`clear` and `zoomed-in`; 244 vehicles and 46 confirmed plates in all). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 2.5 to 11 minutes, a 1080p one about twice its length.
+5. **Check the demo data is there:** `uv run tracko-anpr db-status` lists the videos, jobs and the overall figures. The Overview should open on `kdy`, the main demo video (167 vehicles, 4 confirmed plates). Its selector also lists `clear` and `zoomed-in`, which are kept but no longer used (411 vehicles and 50 confirmed plates across all three). If the data is gone, restore the last backup (below) — do not reprocess on the day; a 4K video takes 2.5 to 11 minutes, a 1080p one about twice its length.
 
 How long it takes (rehearsed 2026-11-07 from `wsl --shutdown`): the container is back on its own within 10 seconds of the first WSL command, the worker is ready a few seconds after it is started, and the status API says ready as soon as the web app is up; the whole cold start is under a minute. A restore takes about 15 seconds. A live upload of a 20-second 1080p clip showed its plate-size verdict after 50 seconds (cold worker) and finished processing 70 seconds after "Process Video".
 
