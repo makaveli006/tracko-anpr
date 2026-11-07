@@ -30,7 +30,15 @@ def mount_dashboard(app: FastAPI) -> None:
     nicegui_app.add_static_files(STATIC_URL, STATIC_DIR)
 
     # Importing the page modules registers their routes.
-    from tracko_anpr.dashboard.pages import overview, placeholders, upload  # noqa: F401
+    from tracko_anpr.dashboard.pages import (  # noqa: F401
+        analysis,
+        analytics,
+        history,
+        overview,
+        registry,
+        settings,
+        upload,
+    )
 
     ui.run_with(
         app,

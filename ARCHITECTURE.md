@@ -913,6 +913,71 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  and switching Original / Annotated kept the position (42 s)
  both ways, with no browser console errors.
 
+ THE REMAINING PAGES (Phase 13)
+
+ Video Analysis (/analysis?video=&t=): the player at full
+ width with the Original / Annotated switch; download
+ buttons for the annotated video, results JSON, detections
+ CSV and plates CSV; Plate Recognition figures for the
+ video; the processing timeline; and Tracked Vehicles,
+ every counted vehicle in order of appearance (time, track,
+ type, number, confidence, validation, registry, plate
+ thumbnail). A row seeks the video to the vehicle's first
+ appearance and opens the details dialog. ?t= seeks on
+ arrival, which is how a History row lands here.
+
+ Detection History (/history): every counted vehicle across
+ all processed videos, with filters (video, validation
+ state, vehicle type, number search), sortable columns,
+ pages of 25, and Export CSV, which downloads exactly the
+ rows the filters select through /api/detections/export.csv.
+ A row opens the details dialog with an "Open in Video
+ Analysis" button that lands on the player at that moment.
+
+ Demo Registry (/registry): "Demonstration Data Only" in an
+ amber banner at the top, with the disclaimer sentence; a
+ number lookup (exact match → green banner with the
+ fictional record, otherwise "no exact match"); Recognised
+ Numbers vs Registry, every number the pipeline confirmed
+ with Match / No Match and the fictional record; and the
+ registry records themselves. `tracko-anpr seed-registry`
+ generates the records (services/registry_seed.py):
+ fictional owner, vehicle, colour, registering office (by
+ state code) and validity for about half of the confirmed
+ numbers (--share), plus a few numbers that appear in no
+ video (--extra), deterministically (--seed), so a re-run
+ adds nothing; --reset starts over.
+
+ Analytics (/analytics?video=): for one video or all:
+ category donut, validated vs uncertain bars (confirmed,
+ unconfirmed, no plate found), recognition coverage,
+ detection activity (over video time for one video; counted
+ vehicles per video across all), confidence distribution of
+ confirmed numbers in bands, and processing duration per
+ video with a table of length, processing time, speed
+ against real time, frames, ms per frame and ms per plate.
+ The average inference latency is weighted by frames and
+ plates, not a mean of per-video means.
+
+ Settings (/settings): the frozen pipeline settings in the
+ design's groups (model configuration, processing
+ resolution, tracking, detection and recognition
+ thresholds, video output, storage) with their real values
+ and a note that they are frozen; nothing is editable in the
+ POC, and a value stored through the API would be shown
+ beside the value the pipeline runs with.
+
+ Verified 2026-11-07 in headless Chromium, the whole journey
+ clicked through the sidebar: 59 tracked vehicles on Video
+ Analysis; History 240 counted vehicles → 44 confirmed → 42
+ with "KL", sorted by confidence ascending (0.85, 0.88, ...);
+ a History row opened Video Analysis at 71.31 s; Export CSV
+ downloaded detections.csv with the 44 filtered rows; the
+ registry showed 8 matches and 20 no-matches after seeding
+ (28 confirmed numbers, 8 + 4 records), a known number looked
+ up as a Match and an unknown one as no match; Analytics and
+ Settings rendered; no browser console errors.
+
 
 ══════════════════════════════════════════════════════════════
  FINAL DEPLOYMENT CONFIGURATION

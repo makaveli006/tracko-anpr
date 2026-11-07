@@ -75,3 +75,52 @@ def count(session: Session) -> int:
     from sqlalchemy import func
 
     return int(session.scalar(select(func.count()).select_from(DemoRegistryEntry)) or 0)
+
+
+@dataclass(frozen=True)
+class RecognizedNumber:
+    """A number the pipeline confirmed, and whether the fictional registry knows it."""
+
+    registration_number: str
+    vehicle_type: str
+    videos: list[str]
+    sightings: int
+    """Counted vehicles that carry this number across the latest runs."""
+    best_confidence: float
+    record: RegistryRecord | None
+
+    @property
+    def match(self) -> bool:
+        return self.record is not None
+
+
+def recognized_numbers(session: Session, search: str | None = None) -> list[RecognizedNumber]:
+    """Every confirmed number across the processed videos with its Match / No Match status."""
+    from tracko_anpr.db.metrics import latest_completed_jobs
+    from tracko_anpr.db.models import RecognitionEvent, VehicleTrack, Video
+
+    rows = session.execute(
+        select(RecognitionEvent.registration_number, VehicleTrack.vehicle_type, Video.name, RecognitionEvent.confidence)
+        .join(VehicleTrack, VehicleTrack.id == RecognitionEvent.track_pk)
+        .join(Video, Video.id == VehicleTrack.video_id)
+        .where(
+            RecognitionEvent.job_id.in_(latest_completed_jobs()),
+            RecognitionEvent.status == "confirmed",
+            VehicleTrack.counts_as_vehicle,
+        )
+        .order_by(RecognitionEvent.registration_number)
+    ).all()
+    grouped: dict[str, dict] = {}
+    for number, vehicle_type, video_name, confidence in rows:
+        if search and search.upper().replace(" ", "") not in number:
+            continue
+        item = grouped.setdefault(number, {"type": vehicle_type, "videos": [], "count": 0, "best": 0.0})
+        if video_name not in item["videos"]:
+            item["videos"].append(video_name)
+        item["count"] += 1
+        item["best"] = max(item["best"], confidence)
+    records = lookup_many(session, list(grouped))
+    return [
+        RecognizedNumber(number, item["type"], item["videos"], item["count"], item["best"], records.get(number))
+        for number, item in grouped.items()
+    ]

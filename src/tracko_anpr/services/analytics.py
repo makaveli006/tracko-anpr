@@ -25,7 +25,7 @@ class ProcessingRun:
     processing_seconds: float
     frames: int
     detect_track_ms_per_frame: float | None
-    """Average detection-and-tracking time per frame: the "inference latency"."""
+    """Average detection-and-tracking time per frame: the "inference latency". Includes the model's start-up."""
     ocr_ms_per_plate: float | None
     times_real_time: float | None
 
@@ -84,8 +84,11 @@ def analytics(session: Session, video_id: int | None = None) -> Analytics:
             )
         )
     runs.sort(key=lambda run: run.video_name)
-    latencies = [run.detect_track_ms_per_frame for run in runs if run.detect_track_ms_per_frame is not None]
-    ocr = [run.ocr_ms_per_plate for run in runs if run.ocr_ms_per_plate is not None]
+    # Weighted by frames and plates, not a mean of per-video means: a tiny run must not dominate the average.
+    track_seconds = sum((job.timings or {}).get("detection_and_tracking_s") or 0.0 for job, _ in rows)
+    frames_total = sum(job.frames_processed or 0 for job, _ in rows)
+    ocr_seconds = sum((job.timings or {}).get("ocr_s") or 0.0 for job, _ in rows)
+    plates_total = sum(job.plates_examined or 0 for job, _ in rows)
     return Analytics(
         scope="video" if video_id is not None else "all",
         video_id=video_id,
@@ -95,6 +98,6 @@ def analytics(session: Session, video_id: int | None = None) -> Analytics:
         detections_over_time=metrics.detections_over_time(session, video_id) if video_id is not None else [],
         confidence_distribution=distribution,
         runs=runs,
-        average_detect_track_ms_per_frame=round(sum(latencies) / len(latencies), 2) if latencies else None,
-        average_ocr_ms_per_plate=round(sum(ocr) / len(ocr), 1) if ocr else None,
+        average_detect_track_ms_per_frame=round(1000 * track_seconds / frames_total, 2) if frames_total else None,
+        average_ocr_ms_per_plate=round(1000 * ocr_seconds / plates_total, 1) if plates_total else None,
     )

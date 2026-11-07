@@ -79,9 +79,11 @@ def with_registry(session: Session, rows: list[Detection]) -> list[DetectionRow]
     ]
 
 
-def video_detections(session: Session, video_id: int, limit: int | None = None) -> list[DetectionRow]:
-    """A video's counted vehicles, newest first, for the Recent Detections table."""
-    return with_registry(session, metrics.detections(session, video_id, limit=limit))
+def video_detections(
+    session: Session, video_id: int, limit: int | None = None, newest_first: bool = True
+) -> list[DetectionRow]:
+    """A video's counted vehicles, newest first for the Recent Detections table, oldest first for a timeline."""
+    return with_registry(session, metrics.detections(session, video_id, limit=limit, newest_first=newest_first))
 
 
 @dataclass(frozen=True)

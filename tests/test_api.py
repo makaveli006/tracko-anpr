@@ -373,3 +373,23 @@ def test_the_dashboard_pages_and_theme_are_served_from_the_same_process(settings
         font = client.get("/dashboard-static/fonts/InterVariable.woff2")
         assert font.status_code == 200 and len(font.content) > 100_000
         assert client.get("/api/system/status").status_code == 200  # the API is still there
+
+
+def test_the_registry_seeder_makes_matches_and_non_matches_and_is_repeatable(app, settings):
+    from tracko_anpr.services import registry, registry_seed
+
+    stored_run(app, settings)
+    with session_scope(app.state.session_factory) as session:
+        first = registry_seed.seed(session, share=1.0, extra=2)
+        assert first.confirmed_numbers == 2  # KL07AB1234 and KL10CD5678
+        assert first.created_from_videos == 2 and first.created_extra == 2
+        again = registry_seed.seed(session, share=1.0, extra=2)
+        assert again.created_from_videos == 0 and again.skipped_existing == 2 and again.created_extra == 0
+        assert registry.count(session) == 4
+        numbers = registry.recognized_numbers(session)
+        assert {n.registration_number: n.match for n in numbers} == {"KL07AB1234": True, "KL10CD5678": True}
+        half = registry_seed.seed(session, share=0.0, extra=0, reset=True)
+        assert half.created_from_videos == 0 and registry.count(session) == 0
+        assert all(not n.match for n in registry.recognized_numbers(session))
+        record = registry.lookup(session, "kl07ab1234")
+        assert record is None

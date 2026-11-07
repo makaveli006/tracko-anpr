@@ -24,7 +24,8 @@ def status_badge(status: str, confidence: float | None = None) -> None:
         ui.label(STATUS_LABELS.get(status, status)).classes("font-medium")
 
 
-async def show_detection(track_pk: int) -> None:
+async def show_detection(track_pk: int, open_in_analysis: str | None = None) -> None:
+    """Open the details dialog; `open_in_analysis` adds a button that leads to the player at that moment."""
     detail: DetectionDetail | None = await query(results.detection_detail, track_pk)
     if detail is None:
         ui.notify("That detection is no longer in the database.", type="warning")
@@ -39,7 +40,15 @@ async def show_detection(track_pk: int) -> None:
                     ui.label(
                         f"{d.video_name} · seen {video_time(d.first_seen_s)} to {video_time(d.last_seen_s)}"
                     ).classes("tk-secondary text-sm")
-            ui.button(color=None, icon="close", on_click=dialog.close).props("flat round").classes("tk-link")
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                if open_in_analysis:
+                    ui.button(
+                        "Open in Video Analysis",
+                        color=None,
+                        icon="play_circle",
+                        on_click=lambda: ui.navigate.to(open_in_analysis),
+                    ).classes("tk-primary")
+                ui.button(color=None, icon="close", on_click=dialog.close).props("flat round").classes("tk-link")
 
         with ui.row().classes("w-full gap-5 no-wrap items-start mt-2"):
             with ui.column().classes("gap-2").style("flex: 0 0 300px"):

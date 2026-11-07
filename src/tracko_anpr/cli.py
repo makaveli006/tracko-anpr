@@ -440,6 +440,27 @@ def _run_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_seed_registry(args: argparse.Namespace) -> int:
+    """Fill the FICTIONAL demonstration registry from the plates recognized so far."""
+    from tracko_anpr.db.session import make_session_factory, session_scope
+    from tracko_anpr.services import registry, registry_seed
+
+    settings = get_settings()
+    with session_scope(make_session_factory(_open_database(settings))) as session:
+        outcome = registry_seed.seed(
+            session, share=args.share, extra=args.extra, seed_value=args.seed, reset=args.reset
+        )
+        total = registry.count(session)
+    print(
+        f"Confirmed numbers in the processed videos: {outcome.confirmed_numbers}. "
+        f"Created {outcome.created_from_videos} fictional records for them (about {args.share:.0%}), "
+        f"{outcome.created_extra} for numbers seen in no video; {outcome.skipped_existing} already existed. "
+        f"Registry now holds {total} fictional records."
+    )
+    print("Demonstration data only: every record is invented; no real registration database is consulted.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracko-anpr", description="Vehicle ANPR proof of concept.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -499,6 +520,15 @@ def build_parser() -> argparse.ArgumentParser:
     jobs = commands.add_parser("jobs", help="List processing jobs, newest last.")
     jobs.add_argument("--limit", type=int, default=20)
     jobs.set_defaults(handler=_run_jobs)
+
+    seed = commands.add_parser(
+        "seed-registry", help="Generate the FICTIONAL demo registry from a share of the recognized plates."
+    )
+    seed.add_argument("--share", type=float, default=0.5, help="Share of confirmed numbers to give a record (0.5).")
+    seed.add_argument("--extra", type=int, default=4, help="Fictional numbers seen in no video to add (4).")
+    seed.add_argument("--seed", type=int, default=2026, help="Random seed, so a re-run adds nothing new.")
+    seed.add_argument("--reset", action="store_true", help="Delete the existing registry first.")
+    seed.set_defaults(handler=_run_seed_registry)
 
     web = commands.add_parser("web", help="Serve the API and the dashboard in one process.")
     web.add_argument("--host", default=None, help="Listen address (default TRACKO_WEB_HOST or 0.0.0.0).")
