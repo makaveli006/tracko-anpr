@@ -334,6 +334,70 @@ def test_a_confirmed_number_in_the_demo_registry_shows_as_a_match(client, app, s
     assert client.get("/api/registry?search=07ab").json()["entries"][0]["registration_number"] == "KL07AB1234"
 
 
+def test_registry_lists_descriptions_and_csv_import(client, app, settings):
+    video_id = stored_run(app, settings)
+    assert client.get("/api/registry/lists").json() == []
+    bad = client.post("/api/registry/lists", json={"number": "hello", "list_name": "Staff"})
+    assert bad.status_code == 400 and "not a valid Indian registration number" in bad.json()["detail"]
+    assert client.post("/api/registry/lists", json={"number": "KL07AB1234", "list_name": " "}).status_code == 400
+
+    made = client.post(
+        "/api/registry/lists",
+        json={"number": "kl 07 ab 1234", "list_name": "Staff", "description": "gate pass", "added_by": "Anand"},
+    )
+    assert made.status_code == 201, made.text
+    record = made.json()
+    assert record["registration_number"] == "KL07AB1234" and record["list_name"] == "Staff"
+    assert record["description"] == "gate pass" and record["fictional"] is True
+    assert record["note"].startswith("Added from the dashboard by Anand on") and record["owner_name"].startswith("(")
+    row = next(r for r in client.get(f"/api/videos/{video_id}/detections").json() if r["detection"]["track_id"] == 1)
+    assert row["registry_match"]["exact"] is True and row["registry_match"]["record"]["list_name"] == "Staff"
+    assert client.get("/api/registry/KL07AB1234").json()["record"]["description"] == "gate pass"
+    assert client.get("/api/registry/lists").json() == [{"name": "Staff", "count": 1}]
+    assert len(client.get("/api/registry?list=Staff").json()["entries"]) == 1
+    assert client.get("/api/registry?list=Visitors").json()["entries"] == []
+
+    template = client.get("/api/registry/import-template.csv")
+    assert template.status_code == 200 and template.text.startswith("registration_number,owner_name,")
+    rows = (
+        "registration_number,owner_name,vehicle_type,valid_until,description,list_name\n"
+        "KL10CD5678,B. Import,Truck,2029-01-31,delivery van,Visitors\n"
+        "kl07 ab 1234,,,,,Visitors\n"  # an existing record: only its list changes
+        "HELLO,,,,,\n"  # not a plate
+        "KL07AB1299,,Spaceship,not-a-date,,\n"  # an unknown type would become Car, but the date is wrong
+    )
+    imported = client.post(
+        "/api/registry/import", files={"file": ("list.csv", rows.encode(), "text/csv")}, data={"added_by": "Anand"}
+    )
+    assert imported.status_code == 200, imported.text
+    outcome = imported.json()
+    assert (outcome["created"], outcome["updated"]) == (1, 1)
+    assert [line for line, _ in outcome["skipped"]] == [4, 5]
+    assert "not a valid" in outcome["skipped"][0][1] and "not a date" in outcome["skipped"][1][1]
+    assert client.get("/api/registry/lists").json() == [{"name": "Visitors", "count": 2}]
+    truck = client.get("/api/registry/KL10CD5678").json()["record"]
+    assert (
+        truck["owner_name"] == "B. Import" and truck["vehicle_type"] == "Truck" and truck["valid_until"] == "2029-01-31"
+    )
+    assert truck["note"].startswith("Imported from list.csv by Anand")
+    assert client.get("/api/registry/KL07AB1234").json()["record"]["description"] == "gate pass"  # kept
+    assert (
+        client.post("/api/registry/import", files={"file": ("x.csv", b"owner_name\nA\n", "text/csv")}).status_code
+        == 400
+    )
+
+    edited = client.put(
+        f"/api/registry/{record['id']}", json={"description": "left the company", "list_name": "Former"}
+    )
+    assert edited.status_code == 200 and edited.json()["list_name"] == "Former"
+    assert edited.json()["description"] == "left the company"
+    cleared = client.delete(f"/api/registry/{record['id']}/list")
+    assert cleared.status_code == 200 and cleared.json()["list_name"] is None
+    assert client.get("/api/registry/lists").json() == [{"name": "Visitors", "count": 1}]
+    assert client.put("/api/registry/99999", json={"description": "x"}).status_code == 404
+    assert client.get("/api/registry/KL07AB1234").json()["match"] is True  # the record itself stays
+
+
 def _registry_entry(number: str, owner: str = "N. Near") -> DemoRegistryEntry:
     return DemoRegistryEntry(
         registration_number=number, owner_name=owner, vehicle_description="Honda City", vehicle_type="Car",

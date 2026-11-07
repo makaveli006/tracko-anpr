@@ -7,6 +7,7 @@ Analysis" lands on the player at that moment.
 
 from __future__ import annotations
 
+import json
 from urllib.parse import urlencode
 
 from nicegui import ui
@@ -111,6 +112,7 @@ class HistoryView:
                     on_click=lambda: ui.navigate.to(self.url(q=search.value or None, offset=0)),
                 ).classes("tk-secondary")
                 ui.element("div").style("flex: 1 1 0")
+                ui.button("Copy link", color=None, icon="link", on_click=self.copy_link).classes("tk-secondary")
                 ui.button(
                     "Export CSV",
                     color=None,
@@ -174,6 +176,11 @@ class HistoryView:
                 "Click a row for the details and to open it in Video Analysis. Confidence is not accuracy; the "
                 "registry is fictional."
             ).classes("tk-muted text-xs mt-1")
+
+    def copy_link(self) -> None:
+        """Put the address of this exact view (filters, sort, page) on the clipboard."""
+        ui.run_javascript(f"navigator.clipboard.writeText(window.location.origin + {json.dumps(self.url())})")
+        ui.notify("Link to this search copied.", type="positive")
 
     def sorted_by(self, column: str) -> None:
         descending = not self.desc if column == self.sort else column in ("time", "confidence")

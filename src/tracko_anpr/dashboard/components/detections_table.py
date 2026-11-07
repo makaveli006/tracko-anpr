@@ -54,7 +54,8 @@ def direction_cell(approach: str | None, sideways: str | None, text: str) -> Non
 def registry_cell(match, status: str) -> None:
     """Match (green), Possible match (amber, one character away, never asserted), No match, or nothing."""
     if match is not None and match.exact:
-        ui.label("Match").classes("tk-green font-medium")
+        in_list = f" · {match.record.list_name}" if match.record.list_name else ""
+        ui.label(f"Match{in_list}").classes("tk-green font-medium")
     elif match is not None:
         with ui.row().classes("items-center gap-1 no-wrap tk-amber"):
             ui.icon("help_outline").classes("text-base")

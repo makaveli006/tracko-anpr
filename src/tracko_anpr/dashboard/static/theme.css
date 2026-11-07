@@ -321,3 +321,8 @@ a { color: var(--accent-green); }
 .tk-event.confirmed .tk-event-icon { color: var(--accent-green-bright); }
 .tk-event.confirmed .tk-event-text { color: var(--accent-green-bright); font-weight: 600; }
 .tk-event.corrected .tk-event-text { color: var(--accent-amber); }
+
+/* ---- small inline upload (Demo Registry: Import CSV) ------------------------------------------ */
+.tk-upload-inline { max-width: 220px; }
+.tk-upload-inline .q-uploader__header { background: var(--bg-elevated); border-radius: var(--radius-small); }
+.tk-upload-inline .q-uploader__list { display: none; }

@@ -271,6 +271,11 @@ class DemoRegistryEntry(Base):
     """Fictional registering office, e.g. 'Ernakulam RTO'."""
     valid_until: Mapped[date] = mapped_column(Date)
     note: Mapped[str] = mapped_column(Text, default="")
+    """Provenance, written by the seeder or the import ("Fictional record generated…", "Added from the dashboard…")."""
+    description: Mapped[str | None] = mapped_column(String(200))
+    """An operator's free text ("visitor pass until Friday"); nothing else reads it."""
+    list_name: Mapped[str | None] = mapped_column(String(40))
+    """The named list the record belongs to ("Staff", "Visitors", "Watch"), if any."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

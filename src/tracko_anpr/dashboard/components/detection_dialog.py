@@ -181,7 +181,10 @@ async def show_detection(
                     r = detail.registry_match.record
                     ui.label(
                         f"Match · {r.owner_name} · {r.vehicle_description} · {r.colour} · {r.registered_at}"
+                        + (f" · list: {r.list_name}" if r.list_name else "")
                     ).classes("tk-green")
+                    if r.description:
+                        ui.label(r.description).classes("tk-secondary text-sm")
                 elif detail.registry_match is not None:
                     m = detail.registry_match
                     r = m.record

@@ -170,6 +170,13 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                                 its disclaimer in every answer;
                                 a record one character away is
                                 a "possible" match, never a match
+   GET  /api/registry/lists     the named lists and their counts
+   POST /api/registry/lists     add a number to a list (a
+                                fictional record if none exists)
+   PUT  /api/registry/{id}      description and list of a record
+   DELETE /api/registry/{id}/list   take a record out of its list
+   POST /api/registry/import    CSV import; the template is at
+                                GET /api/registry/import-template.csv
    GET/PUT /api/settings        the Settings page's values
    GET  /api/jobs               the queue
 
@@ -417,11 +424,40 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
     Demo Registry page shows 21 match · 3 possible · 22 no
     match. No pipeline change, no reprocessing.
 
- 5. History and registry conveniences (future). "Copy link to
-    this search" on Detection History (the filters are
-    already URL parameters); CSV import, a description field
-    and "add this plate to a list" on the Demo Registry, as
-    the Verifier's list management does. Small page changes.
+ 5. HISTORY AND REGISTRY CONVENIENCES — done 2026-11-07.
+    "Copy link" on Detection History and on a Demo Registry
+    search puts the address of the exact view (every filter,
+    sort and page is a URL parameter) on the clipboard.
+    Registry records can belong to a named list ("Staff",
+    "Visitors", "Watch") and carry an operator's description:
+    demo_registry.list_name and .description (migration
+    f7b3d9c4e1a2); `note` remains the provenance ("Added from
+    the dashboard by … on …; fictional", "Imported from
+    list.csv by …"), which the seeder also reads for its
+    near-miss records. From the Demo Registry page a
+    recognised number is added to a list (the search answer's
+    "Add to a list", the recognised-numbers table's "Add to
+    list"), which creates a fictional placeholder record for
+    it when none exists (owner "(added from the dashboard)",
+    valid a year); records are edited (list, description) or
+    removed from their list, never deleted from the page; a
+    CSV is imported with the columns of
+    GET /api/registry/import-template.csv (only the number is
+    required; an existing number is updated for the fields
+    given; an invalid number or date skips the row with the
+    line and the reason; an unknown vehicle type becomes
+    Car). The page filters by list (URL parameter list) and
+    shows List and Description columns; a Match in any
+    detections table reads "Match · Staff" and the details
+    dialog shows the list and the description. API:
+    GET /api/registry/lists, GET /api/registry/import-
+    template.csv, POST /api/registry/import (multipart),
+    POST /api/registry/lists, PUT /api/registry/{id},
+    DELETE /api/registry/{id}/list, GET /api/registry?list=.
+    The dialog is components/registry_dialog.py (anchored to
+    the page content, the operator's name from the browser as
+    the corrections do). Everything added is fictional and
+    says so. No pipeline change, no reprocessing.
 
  6. Outbound integration (future). An HTTP POST webhook per
     confirmed plate with the same JSON shape as the API's
@@ -1009,7 +1045,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
                        crop path
    demo_registry       FICTIONAL: number, owner, vehicle,
                        type, colour, registering office,
-                       valid until, note
+                       valid until, note (provenance), and an
+                       operator's description and list_name
    plate_corrections   an operator's correction of a track's
                        number and/or type, with the system's
                        values at the time, who, when, note;
