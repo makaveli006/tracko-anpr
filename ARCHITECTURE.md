@@ -1109,10 +1109,24 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    • A different frontend could replace NiceGUI later
      without touching the backend.
 
-   Detect auto-rickshaws and other Indian vehicle types.
-   The POC keeps four classes (car, motorcycle, bus, truck)
-   because the stock YOLO26m model knows only those, so
-   other vehicle types may be missed or mislabelled.
+   Indian vehicle classification. Train the vehicle detection
+   model to recognize auto-rickshaws, scooters, vans and other
+   Indian vehicle categories. This will improve vehicle
+   classification and traffic analytics. The POC keeps four
+   classes (car, motorcycle, bus, truck) because the stock
+   YOLO26m model knows only those, so an auto-rickshaw is
+   today labelled car or motorcycle, a scooter is a
+   motorcycle, and a van a car or truck. How it would be
+   done: collect and label frames from the user's own
+   footage (a few hundred boxes per new class, from several
+   videos and times of day), fine-tune YOLO26m on them with
+   the stock classes kept, measure against a held-out set
+   (same method as "HOW TO MEASURE REAL ACCURACY"), then add
+   the classes to VEHICLE_CLASSES, the donut colours, the
+   icons and the registry seeder. It changes a frozen
+   setting, so every demo video would be processed again,
+   and the YOLO26 AGPL question (below) applies to the
+   trained weights too.
 
    Measure real accuracy. For now the dashboard shows
    recognition coverage and confidence only, labelled as not
