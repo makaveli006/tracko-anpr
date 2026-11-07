@@ -23,6 +23,7 @@ def answer(track, number, status, vehicle_type="Car"):
 
 def label(track, number, legible="yes", vehicle_type="Car", is_vehicle="yes", duplicate=""):
     return {
+        "note": "",
         "track": track,
         "true_number": number,
         "plate_legible": legible,
@@ -60,6 +61,15 @@ def test_repeats_and_false_tracks_stay_out_of_the_figures_but_are_reported():
     m = measure_accuracy.measure(system, truth)
     assert (m.vehicles, m.duplicates, m.false_tracks) == (1, 1, 1)
     assert m.confirmed == 1 and len(m.confirmed_on_duplicates) == 1
+
+
+def test_a_track_the_system_merged_away_is_a_repeat_or_a_lost_vehicle():
+    system = [answer("T1", "KL07AB1234", "confirmed")]
+    truth = [label("T1", "KL07AB1234"), label("T2", "KL07AB1234", duplicate="T1"), label("T3", "", "no")]
+    m = measure_accuracy.measure(system, truth)
+    assert m.merged_by_system == 2 and m.duplicates == 1
+    assert m.vehicles == 2 and [row["track"] for row in m.lost_vehicles] == ["T3"]
+    assert m.correct == 1
 
 
 def test_unconfirmed_vehicles_are_sorted_by_what_their_guess_was_worth():

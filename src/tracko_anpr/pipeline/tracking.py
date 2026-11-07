@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from tracko_anpr.pipeline.video import VideoInfo, read_frames
@@ -194,6 +195,41 @@ class TrackRegistry:
 
 
 @dataclass
+class CameraPath:
+    """How far the picture has moved since the first frame, measured from every few frames.
+
+    Phone footage is rarely still, so a parked vehicle drifts across the picture. Subtracting this
+    position from a box gives where the vehicle is relative to the scene. It feeds only the
+    repeat-track rule (pipeline/repeats.py); detection and tracking do not use it.
+    """
+
+    step: int = 6
+    width: int = 480
+    min_response: float = 0.05
+    """A weaker match than this between two samples is ignored rather than trusted."""
+    positions: dict[int, tuple[float, float]] = field(default_factory=dict)
+    _previous: np.ndarray | None = None
+    _position: tuple[float, float] = (0.0, 0.0)
+
+    def record(self, frame_index: int, frame: np.ndarray) -> None:
+        if frame_index % self.step:
+            return
+        scale = frame.shape[1] / self.width
+        small = cv2.resize(frame, (self.width, round(frame.shape[0] / scale)), interpolation=cv2.INTER_AREA)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        if self._previous is not None:
+            (shift_x, shift_y), response = cv2.phaseCorrelate(self._previous, gray)
+            if response > self.min_response:
+                self._position = (self._position[0] + shift_x * scale, self._position[1] + shift_y * scale)
+        self._previous = gray
+        self.positions[frame_index] = self._position
+
+    def at(self, frame_index: int) -> tuple[float, float]:
+        """The camera's position at a frame, in original-frame pixels."""
+        return self.positions.get(frame_index - frame_index % self.step, (0.0, 0.0))
+
+
+@dataclass
 class TrackingRun:
     """Result of the detection-and-tracking pass over one video."""
 
@@ -204,6 +240,8 @@ class TrackingRun:
     track_seconds: float
     warmup_seconds: float = 0.0
     """Time spent on the first frame, which includes one-off GPU start-up and is not typical."""
+    camera: CameraPath = field(default_factory=CameraPath)
+    camera_seconds: float = 0.0
 
     @property
     def frame_count(self) -> int:
@@ -228,7 +266,8 @@ def track_video(
     expected = info.frame_count if max_frames is None else min(info.frame_count, max_frames)
     frames: list[list[TrackedVehicle]] = []
     registry = TrackRegistry()
-    decode_seconds = track_seconds = warmup_seconds = 0.0
+    decode_seconds = track_seconds = warmup_seconds = camera_seconds = 0.0
+    camera = CameraPath()
 
     source = read_frames(info.path, max_frames)
     while True:
@@ -237,6 +276,10 @@ def track_video(
         decode_seconds += time.perf_counter() - started
         if frame is None:
             break
+
+        started = time.perf_counter()
+        camera.record(len(frames), frame)
+        camera_seconds += time.perf_counter() - started
 
         started = time.perf_counter()
         vehicles = tracker.update(frame)
@@ -250,4 +293,4 @@ def track_video(
         if progress is not None:
             progress(len(frames), expected)
 
-    return TrackingRun(frames, registry, decode_seconds, track_seconds, warmup_seconds)
+    return TrackingRun(frames, registry, decode_seconds, track_seconds, warmup_seconds, camera, camera_seconds)

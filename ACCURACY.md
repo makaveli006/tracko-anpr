@@ -31,7 +31,7 @@ So the system's reading was right on 23 of the 28 plates, and one wrong number w
 
 ### Why the vehicle count is too high
 
-The system follows each vehicle through the video. When traffic passes in front of a parked vehicle, the system loses sight of it and treats it as a new vehicle when it reappears. One parked scooter was counted 19 times and another 5 times, which accounts for 22 of the 27 extra entries. This can be fixed, and the fix is planned for after the demo.
+The system follows each vehicle through the video. When traffic passes in front of a parked vehicle, the system loses sight of it and treats it as a new vehicle when it reappears. One parked scooter was counted 19 times and another 5 times, which accounts for 22 of the 27 extra entries. A first fix is now in place for new runs. On `kdy` it brought the count from 167 down to 125, when about 87 vehicles really passed. So it reduces the problem but does not remove it. The 59 on this page is from before that fix; `zoomed-in` has not been reprocessed.
 
 ### Why the dashboard shows 27% and this page says about half
 
@@ -103,7 +103,7 @@ Often the plate is too small, blurred or at an angle. In this test, it also held
 We expect so. Placing the camera closer and in line with the traffic is the biggest improvement we know of. We can also review how strict the system is, once we have tested more footage.
 
 **Why did it show 59 vehicles when there were 32?**
-It counted parked vehicles again each time traffic passed in front of them. We know the cause and will fix it after the demo.
+It counted parked vehicles again each time traffic passed in front of them. We have made a first fix, which removes about half of these extra entries on our main video. The count is better but still too high, so we don't quote it as a true traffic count yet.
 
 **The dashboard says 27%. Why are you saying about half?**
 They measure different things. 27% is confirmed numbers out of everything the system counted, including repeat counts and vehicles with no readable plate. About half is correct numbers out of the plates a person could actually read.
@@ -112,7 +112,7 @@ They measure different things. 27% is confirmed numbers out of everything the sy
 It was the quickest to check before the deadline: 59 entries, against 185 for the other demo video. It also has the best results of our videos so far, so the others may do worse. We will check those next.
 
 **Is it ready for live use?**
-Not yet. This is a proof of concept that works on recorded videos. The next steps are to fix the count, test more footage, and have people check a larger sample.
+Not yet. This is a proof of concept that works on recorded videos. The next steps are to improve the count further, test more footage, and have people check a larger sample.
 
 **What happens next?**
-We will fix the parked-vehicle count, check the remaining videos, and repeat this test so that we can give a firm figure.
+We will keep improving the parked-vehicle count, check the remaining videos, and repeat this test so that we can give a firm figure.

@@ -98,11 +98,11 @@ T243,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crop
 T245,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T247,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no
 T252,KL58?1?79,partly,Motorcycle,yes,,two-line plate,"claude (crops only, blind)",yes
-T254,KL84F8061,yes,Car,yes,,dark Baleno; clearest in the crops of its second track,"claude (crops only, blind)",no
+T254,KL84F8061,yes,Car,yes,T269,same vehicle as T269; identified by appearance,"claude (crops only, blind)",no
 T265,KL58?1?79,partly,Motorcycle,yes,T252,same vehicle as T252; identified by appearance,"claude (crops only, blind)",no
 T266,KL55?5?63,partly,Car,yes,T238,same vehicle as T238; identified by appearance,"claude (crops only, blind)",no
 T268,,no,Other,yes,,orange three-wheeler,"claude (crops only, blind)",no
-T269,KL84F8061,yes,Car,yes,T254,same vehicle as T254; identified by appearance,"claude (crops only, blind)",no
+T269,KL84F8061,yes,Car,yes,,dark Baleno; clearest crops of this car,"claude (crops only, blind)",no
 T270,,no,Motorcycle,yes,,,"claude (crops only, blind)",no
 T273,,no,Car,yes,T23,same vehicle as T23; identified by appearance,"claude (crops only, blind)",no
 T277,,no,Car,yes,T32,same vehicle as T32; identified by appearance,"claude (crops only, blind)",no

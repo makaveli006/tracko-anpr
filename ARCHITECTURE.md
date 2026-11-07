@@ -909,6 +909,14 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      number as an earlier one, not in view at the same time,
      is the same vehicle under a new track number. It keeps
      its number but is not counted again.
+   • Not a repeat, parked vehicles (pipeline/repeats.py,
+     2026-11-07): two tracks with no confirmed number are one
+     parked vehicle when both barely moved (under 5% of the
+     frame width), they never overlap in time, their boxes
+     overlap by at least 50% once the camera's movement is
+     removed, and their colours match at 0.6 or more. The
+     track with a confirmed number stays counted, otherwise
+     the earliest. See PARKED VEHICLES AND PLATE OWNERSHIP.
    "Unique Tracks" is every track the tracker produced.
 
  Which frames are read:
@@ -918,10 +926,13 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
  Whose plate it is:
    • Vehicle boxes overlap in traffic, so a vehicle's cut-out
-     can show a neighbour's plate. A plate goes to the
-     smallest vehicle box that contains its centre: the
-     vehicle in front has the smaller box, and it is the one
-     whose plate can be seen.
+     can show a neighbour's plate. Among the boxes containing
+     the plate's centre, one lying at least 80% inside another
+     wins (a van's box takes in the car ahead of it). When
+     two boxes only partly overlap, the nearer vehicle wins,
+     the one whose box reaches lower in the picture. Box size
+     alone was the rule until 2026-11-07, when a partly hidden
+     bus with the smaller box received a car's plate.
 
  Plate formats accepted:
    • Standard: 2-letter state code, 1 to 2 digit district,
@@ -1503,6 +1514,87 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  with tools/measure_accuracy.py. No accuracy figure is shown
  on the dashboard; at n = 16 it waits for the full sample.
 
+ PARKED VEHICLES AND PLATE OWNERSHIP (2026-11-07)
+
+ Two faults the labels exposed, fixed together. This reopens
+ the Phase 7 freeze for these two rules only, at the user's
+ request; every other setting stays frozen.
+
+ Parked vehicles. Repeats were merged only by a confirmed
+ number, so a parked vehicle with an unreadable plate was
+ counted each time traffic passed in front of it. Phone
+ footage also moves, so pixel position alone is not enough:
+ a plain same-place rule wrongly merged 23 to 33 vehicles on
+ kdy at the overlap that removed most repeats. So
+ track_video now measures the camera's movement
+ (tracking.CameraPath, cv2.phaseCorrelate on every 6th frame
+ at 480 px wide), which feeds only this rule, and
+ pipeline/repeats.py compares tracks by corrected position
+ and colour (ParkedRules: max_move 0.05, min_overlap 0.5,
+ min_look 0.6, recorded in results.json's settings).
+ mark_parked_repeats runs after mark_repeat_tracks and uses
+ the same same_vehicle_as column, so the database, API and
+ pages are unchanged. Tracks in view together, or with two
+ different confirmed numbers, are never merged.
+
+ Plate ownership. See "Whose plate it is". Offline on the
+ stored sightings, 4 of 238 moved on zoomed-in and 37 of 643
+ on kdy, none shown to move away from the right vehicle. One
+ blank reading went from a car to a scooter in front of it
+ (T289, frame 1365): the known cost of the nearer-vehicle
+ rule, and it has no text.
+
+ Measured on kdy, reprocessed twice with identical results:
+
+                            Before   After
+ Tracks                       301     301   (tracking unchanged)
+ Total Vehicles               167     125   (87 real, labelled)
+ Repeat tracks                  0      42
+ Confirmed numbers              4       3
+ Run time                   279 s   324 s
+
+   • 42 tracks merged: 40 right, 2 wrong. T358, a three-wheeler,
+     was merged into a parked van and is the one real vehicle
+     lost from the count. T376 went to the wrong parent but
+     was a repeat anyway.
+   • The confirmed number removed was the wrong one: the bus T1
+     no longer holds the white car's KL11BG7003. The car T4
+     now has those readings and stays unconfirmed, because its
+     9 readings disagree (7003, 7008, 7009). That is the
+     caution working.
+   • All 3 confirmed numbers are right by the labels.
+   • Run time: the new steps measure about 3 s (camera 1.7 s,
+     validation 0.9 s). The rest of the rise is in the tracking
+     stage, which swung from 160 to 269 s across these runs;
+     the 410 s run was slowed by my own status polling. Nothing
+     suggests the new code causes it, but it was not isolated.
+
+ Limits:
+   • A partial fix. kdy's overcount fell from 92% to 44%, and
+     38 extra entries remain. Looser thresholds merge real
+     vehicles, which then vanish from the count (at 111
+     entries, 12 are wrong), so they stay strict.
+   • The thresholds were chosen on the labels they are scored
+     on, and those labels await the user's check of 29 plates,
+     so real footage may do a little worse.
+   • Only kdy was reprocessed. clear and zoomed-in keep their
+     stored rows on the old rules; offline, zoomed-in would go
+     from 59 to 42 for 32 real, with no wrong merge.
+   • Readings are not pooled across a parked vehicle's tracks,
+     which might confirm more numbers but changes validation.
+
+ Why kdy confirms so few (measured 2026-11-07): for 127 of
+ 167 entries a plate was found but could not be read. 61% of
+ its plates are under 60 px wide, where nothing read
+ confidently, and even at 150 px or more only 35% of readings
+ were confident, against 70 to 77% on clear and zoomed-in.
+ Large plates look melted by eye. A simple sharpness measure
+ did not confirm that (249 against 270 and 93), so its cause
+ is unproven; heavy phone processing is a guess. Of 87 vehicles
+ only 12 plates were fully readable by eye and 11 partly. The
+ plate-size check cannot see this, because it measures size
+ only. The kdy labels are in labels/, pending the user's check.
+
  Registry: tracko-anpr seed-registry --reset made 18
  fictional records for 48 confirmed numbers plus 4 for
  numbers seen in no video (22 in all), so the Demo Registry
@@ -2036,7 +2128,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    both cases a vehicle's box overlapped a smaller vehicle
    and picked up its plate (a van and the car ahead of it; a
    car and a motorcycle in front of it). Fixed by giving a
-   plate to the smallest vehicle box containing its centre;
+   plate to the smallest vehicle box containing its centre
+   (refined on 2026-11-07, see "Whose plate it is");
    after the fix the car ahead holds its number with 10
    agreeing frames and no number is confirmed twice at once.
  • Known limit of that rule: when a distant vehicle's box
