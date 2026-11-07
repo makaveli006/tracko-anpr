@@ -109,7 +109,7 @@ It counted parked vehicles again each time traffic passed in front of them. We k
 They measure different things. 27% is confirmed numbers out of everything the system counted, including repeat counts and vehicles with no readable plate. About half is correct numbers out of the plates a person could actually read.
 
 **Why did you test on this video?**
-It is the one with the clearest view of the plates, so it was the natural first test. It shows what the system can do in good conditions, and other videos may do worse. We will check those next.
+It was the quickest to check before the deadline: 59 entries, against 185 for the other demo video. It also has the best results of our videos so far, so the others may do worse. We will check those next.
 
 **Is it ready for live use?**
 Not yet. This is a proof of concept that works on recorded videos. The next steps are to fix the count, test more footage, and have people check a larger sample.
