@@ -1514,6 +1514,54 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  with tools/measure_accuracy.py. No accuracy figure is shown
  on the dashboard; at n = 16 it waits for the full sample.
 
+ SECOND ACCURACY MEASUREMENT (2026-11-07, kdy, the main video)
+
+ All 167 tracks labelled the same way, on the answers from
+ the reprocessing described under PARKED VEHICLES AND PLATE
+ OWNERSHIP (job 22, run on the code merged as 61936ef).
+ Plain-language version: ACCURACY.md.
+
+ Tracks labelled                 167
+ Real distinct vehicles          87
+ Shown as Total Vehicles         125
+ Repeat tracks                   80   (42 merged by the
+                                      system, 1 of those a
+                                      real vehicle lost)
+ Confirmed among the 87          3, all correct (too few for
+                                 a percentage; ±58 points)
+ Plates a person can fully read  10 (13 more in part, 64 not)
+ Reading recall                  3 of 10 = 30% ±32 points
+ Those 10 plates                 3 confirmed right, 1 right
+                                 but unconfirmed, 5 wrong but
+                                 unconfirmed, 1 no reading
+ Vehicle type errors             16 of 87, 13 of them
+                                 three-wheelers with no class
+
+ The 5 wrong readings each differ by one character (KL18BL1647
+ for KL10BL1647, KL84E7031 for KL84E7081), and none was
+ confirmed: the rules kept them out. Of the 83 vehicles left
+ unconfirmed, 1 had the right number, 5 a wrong one, 67 no
+ number, and 10 cannot be checked.
+
+ How it was labelled: Claude read all 167 from crops only,
+ committed before any comparison (ef7f8b9). The user then read
+ 29 plates blind, under rules fixed beforehand: the 19
+ doubtful, the 4 Claude was sure of, and 6 large ones marked
+ unreadable. The user could fully read 9 of the 29. Of Claude's
+ 4 sure plates, 3 matched exactly and T254 could be read only
+ in part. Of the 19 doubtful, 4 matched, T66 settled a letter
+ Claude could not read, T76 differed by one digit (the user's
+ reading was used), and the rest could not be confirmed and
+ left the scoring: T312, T326 and T368 were readable to Claude
+ alone, and on T368 the two readers disagreed. T30's answer
+ looks complete, but that plate is cut off by the frame edge, so it
+ stays partly legible. None of the 6 unreadable plates was read
+ in full. KL84F8061 rests on Claude's reading of T269, whose
+ crops are sharp, and T254 was relabelled as its repeat so the
+ labels name the track the system counts. Vehicles were matched
+ by appearance, so 87 is an estimate. Vehicles with no track
+ at all were not measured.
+
  PARKED VEHICLES AND PLATE OWNERSHIP (2026-11-07)
 
  Two faults the labels exposed, fixed together. This reopens
@@ -1575,8 +1623,7 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
      vehicles, which then vanish from the count (at 111
      entries, 12 are wrong), so they stay strict.
    • The thresholds were chosen on the labels they are scored
-     on, and those labels await the user's check of 29 plates,
-     so real footage may do a little worse.
+     on, so other footage may do a little worse.
    • Only kdy was reprocessed. clear and zoomed-in keep their
      stored rows on the old rules; offline, zoomed-in would go
      from 59 to 42 for 32 real, with no wrong merge.
@@ -1591,9 +1638,9 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  Large plates look melted by eye. A simple sharpness measure
  did not confirm that (249 against 270 and 93), so its cause
  is unproven; heavy phone processing is a guess. Of 87 vehicles
- only 12 plates were fully readable by eye and 11 partly. The
- plate-size check cannot see this, because it measures size
- only. The kdy labels are in labels/, pending the user's check.
+ only 10 plates were fully readable by eye and 13 partly (see
+ SECOND ACCURACY MEASUREMENT). The plate-size check cannot see
+ this, because it measures size only.
 
  Registry: tracko-anpr seed-registry --reset made 18
  fictional records for 48 confirmed numbers plus 4 for
@@ -2300,8 +2347,8 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
 
 
 ══════════════════════════════════════════════════════════════
- HOW TO MEASURE REAL ACCURACY (procedure; first run on zoomed-in,
- see FIRST ACCURACY MEASUREMENT)
+ HOW TO MEASURE REAL ACCURACY (procedure; run on zoomed-in and kdy,
+ see FIRST and SECOND ACCURACY MEASUREMENT)
 ══════════════════════════════════════════════════════════════
 
  WHY COVERAGE IS NOT ACCURACY
