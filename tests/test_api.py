@@ -24,6 +24,8 @@ from tracko_anpr.db.session import session_scope
 from tracko_anpr.db.store import create_job, register_video, store_result
 from tracko_anpr.services.readiness import record_worker_heartbeat
 
+PNG_SIGNATURE = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None, reason="FFmpeg is not installed"
 )
@@ -372,6 +374,10 @@ def test_the_dashboard_pages_and_theme_are_served_from_the_same_process(settings
         assert "#5898d4" not in theme.text  # Quasar's default blue never reaches the page
         font = client.get("/dashboard-static/fonts/InterVariable.woff2")
         assert font.status_code == 200 and len(font.content) > 100_000
+        for name in ("logo-full.png", "mark.png", "favicon.png"):  # the brand, served from the package
+            logo = client.get(f"/dashboard-static/logo/{name}")
+            assert logo.status_code == 200 and logo.content[:8] == PNG_SIGNATURE, name
+        assert "/dashboard-static/logo/logo-full.png" in client.get("/").text
         assert client.get("/api/system/status").status_code == 200  # the API is still there
 
 

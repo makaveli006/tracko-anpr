@@ -29,7 +29,10 @@ def status_panel() -> None:
             if status is None:
                 checking = error == CHECKING
                 with ui.element("div").classes("tk-status-title"):
-                    ui.element("span").classes("tk-dot gray" if checking else "tk-dot red")
+                    if checking:
+                        ui.image("/dashboard-static/logo/mark.png").classes("tk-status-mark").props("no-spinner")
+                    else:
+                        ui.element("span").classes("tk-dot red")
                     ui.label("System Status" if checking else "Status unavailable")
                 ui.label(error or "").classes("tk-muted" if checking else "tk-status-problem")
                 return

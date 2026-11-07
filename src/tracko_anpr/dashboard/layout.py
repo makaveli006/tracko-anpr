@@ -2,7 +2,9 @@
 
 Layout and colours follow DESIGN/DASHBOARD_DESIGN.md sections 2 to 5 and 18. The theme is
 applied per page: Quasar's palette is replaced (its defaults are blue) and the token
-stylesheet is linked, with the Inter font served from this package.
+stylesheet is linked, with the Inter font served from this package. The header carries the
+Tracko logo, recoloured to the theme by tools/make_logo_assets.py (the brand original is blue
+on white, which the design forbids).
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from tracko_anpr.dashboard.components.status_panel import status_panel
 APP_TITLE = "Vehicle ANPR POC"
 APP_SUBTITLE = "Detection • Tracking • Recognition"
 ENVIRONMENT_BADGE = "POC – Indian Roads"
+LOGO_URL = "/dashboard-static/logo"
 
 
 @dataclass(frozen=True)
@@ -58,10 +61,11 @@ def apply_theme() -> None:
 
 def header() -> None:
     with ui.header(fixed=True, bordered=False).classes("tk-header items-center px-4 py-0 justify-between"):
-        with ui.row().classes("items-center gap-3 no-wrap"):
-            with ui.element("div").classes("tk-app-icon"):
-                ui.icon("directions_car").classes("text-2xl")
-            with ui.column().classes("gap-0"):
+        with ui.row().classes("items-center gap-4 no-wrap"):
+            # The brand: the full logo (car mark + wordmark) on wide screens, the mark alone on narrow ones.
+            ui.image(f"{LOGO_URL}/logo-full.png").classes("tk-logo-full").props("no-spinner no-transition")
+            ui.image(f"{LOGO_URL}/mark.png").classes("tk-logo-mark").props("no-spinner no-transition")
+            with ui.column().classes("gap-0 tk-app-text"):
                 ui.label(APP_TITLE).classes("tk-app-title")
                 ui.label(APP_SUBTITLE).classes("tk-app-subtitle")
         with ui.row().classes("items-center gap-4 no-wrap"):

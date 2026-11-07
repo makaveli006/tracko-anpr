@@ -71,14 +71,20 @@ body, .q-field, .q-table, .q-btn, .q-item {
     linear-gradient(90deg, rgba(9, 9, 9, 1) 0%, rgba(9, 9, 9, 0.96) 40%, rgba(9, 9, 9, 0.82) 100%),
     repeating-linear-gradient(90deg, #121212 0 18px, #0d0d0d 18px 20px);
 }
-.tk-app-icon {
-  width: 40px; height: 40px; border-radius: 10px;
-  background: var(--accent-green-dark);
-  display: flex; align-items: center; justify-content: center;
-  color: #ffffff;
-}
-.tk-app-title { font-size: 22px; font-weight: 700; color: #ffffff; line-height: 1.1; }
+/* the brand: full logo (mark + wordmark) on wide screens, the mark alone below 900 px */
+.tk-logo-full { height: 44px; width: 133px; flex: 0 0 auto; }
+.tk-logo-full img { height: 44px; width: auto; object-fit: contain; }
+.tk-logo-mark { display: none; height: 36px; width: 36px; flex: 0 0 auto; }
+.tk-logo-mark img { height: 36px; width: 36px; object-fit: contain; }
+.tk-app-text { border-left: 1px solid var(--border-color); padding-left: 14px; }
+.tk-app-title { font-size: 15px; font-weight: 600; color: var(--text-primary); line-height: 1.2; }
 .tk-app-subtitle { font-size: 12px; color: var(--text-secondary); }
+@media (max-width: 900px) {
+  .tk-logo-full, .tk-app-text { display: none; }
+  .tk-logo-mark { display: block; }
+}
+.q-img.tk-logo-full, .q-img.tk-logo-mark { background: transparent; }
+.q-img.tk-logo-full .q-img__image, .q-img.tk-logo-mark .q-img__image { object-fit: contain; }
 .tk-badge {
   border: 1px solid var(--border-color); border-radius: 999px;
   background: var(--bg-elevated); color: #ffffff;
@@ -217,7 +223,17 @@ a { color: var(--accent-green); }
 .tk-player-empty {
   aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center;
   color: var(--text-muted); background: #0b0b0b; border-radius: 10px; border: 1px solid var(--divider);
+  position: relative; overflow: hidden;
 }
+/* the brand mark as a faint watermark behind every empty state */
+.tk-player-empty::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: url("/dashboard-static/logo/mark.png") no-repeat center / min(120px, 45%);
+  opacity: 0.16;
+}
+.tk-player-empty > * { position: relative; }
+.tk-status-mark { width: 20px; height: 20px; opacity: 0.55; flex: 0 0 20px; }
+.tk-status-mark img { width: 20px; height: 20px; object-fit: contain; }
 
 /* table (Phase 12+) */
 .tk-table .q-table__top, .tk-table .q-table__bottom, .tk-table thead tr { background: var(--bg-table-header); }

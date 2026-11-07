@@ -807,6 +807,16 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
  dashboard/runtime.py, in a worker thread with a session of
  their own.
 
+ The brand: the Tracko logo (DESIGN/logo/, added 2026-11-07)
+ is blue on white in the original, which the design forbids,
+ so tools/make_logo_assets.py derives theme-coloured copies
+ with a transparent background (car body light, brackets
+ and signal arcs green) into dashboard/static/logo/. The
+ full logo with the wordmark sits in the header next to
+ "Vehicle ANPR POC"; the mark alone is the favicon, the
+ header on narrow screens, and a faint watermark behind
+ every empty state. The originals are never served.
+
  Colours: every colour is a token in dashboard/static/
  theme.css (DESIGN section 18); Quasar's palette is replaced
  per page with ui.colors so no blue reaches the screen; the

@@ -6,7 +6,7 @@ importing a page module registers its routes. Pages must never query the databas
 files themselves: they call the service functions in `tracko_anpr.services` through
 `dashboard.runtime.query`, exactly as the API routes do.
 
-Static files (the theme stylesheet and the Inter font) are served from this package at
+Static files (the theme stylesheet, the Inter font and the logo) are served from this package at
 /dashboard-static, so nothing is fetched from the internet at run time.
 """
 
@@ -43,7 +43,7 @@ def mount_dashboard(app: FastAPI) -> None:
     ui.run_with(
         app,
         title="Vehicle ANPR POC",
-        favicon=str(STATIC_DIR / "favicon.svg"),
+        favicon=str(STATIC_DIR / "logo" / "favicon.png"),
         dark=True,
         storage_secret=None,
         reconnect_timeout=10.0,
