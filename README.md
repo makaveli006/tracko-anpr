@@ -28,6 +28,20 @@ Options: `--max-seconds N` processes only the first N seconds; `--no-video` skip
 
 A 2-minute clip takes about three and a half minutes at 1080p and up to eight and a half at 2K; a full-length video takes roughly two to four times its own length (the table is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`). The rules that decide what counts as a vehicle and when a number is confirmed are in section 10 of `ARCHITECTURE.md`, and the settings are frozen as of Phase 7.
 
+### Process videos through the worker
+
+The application processes videos in a separate worker process, fed by a queue in the database. From the command line the same path is:
+
+```bash
+uv run tracko-anpr enqueue videos/clips/kochi/kochi_part02.mp4   # register the file and queue it
+uv run tracko-anpr worker                                        # run queued jobs until Ctrl+C
+uv run tracko-anpr jobs                                          # what is queued, running, done or failed
+```
+
+`enqueue` takes a path (registered first if new), a video id or a video name. `ingest <path>` registers a file where it lies without copying it, for videos too large to upload through a browser. `worker --once` runs a single job and exits.
+
+Progress (stage and frames done) is written to the job as it runs. A video that cannot be processed ends as `failed` with the reason, and the worker carries on. If the worker is killed mid-job, the next worker to start puts that job back in the queue; a job that has already crashed a worker once is failed instead. Ctrl+C lets the current job finish; a second Ctrl+C interrupts it and requeues it.
+
 ### Detect and track vehicles
 
 ```bash

@@ -165,6 +165,27 @@ class PipelineResult:
     """Everything written to results.json: video, summary, timings, speed, memory, settings, vehicles."""
 
 
+MIN_FRAMES_READ_SHARE = 0.9
+"""A run that decodes fewer than this share of the frames the file declares is a damaged file, not a result."""
+
+
+def check_frames_read(frames_read: int, frames_expected: int, video_name: str) -> None:
+    """Raise `VideoError` when a video gave up far too early: a truncated or damaged file.
+
+    FFmpeg stops quietly at the first unreadable part of a file, so a video cut off at 2% would
+    otherwise "complete" with no vehicles. The frame count in the file's header is exact for
+    these files; where a header has none it is estimated from the duration, so a small
+    shortfall is allowed.
+    """
+    if frames_read == 0:
+        raise VideoError(f"No frames could be read from {video_name}.")
+    if frames_expected > 0 and frames_read < MIN_FRAMES_READ_SHARE * frames_expected:
+        raise VideoError(
+            f"Only {frames_read} of {frames_expected} frames could be read from {video_name}; "
+            "the file is probably truncated or damaged."
+        )
+
+
 def plate_owner(plate: Box, found_in: int, vehicle_boxes: dict[int, Box]) -> int:
     """Which vehicle a plate belongs to, given every countable vehicle's box in that frame.
 
@@ -278,8 +299,13 @@ def run_pipeline(
     options: PipelineOptions | None = None,
     progress: StageProgress | None = None,
     name: str | None = None,
+    reader: OcrClient | None = None,
 ) -> PipelineResult:
-    """Process one MP4 from start to finish and write its results under `storage/`."""
+    """Process one MP4 from start to finish and write its results under `storage/`.
+
+    `reader` is a plate reader to use instead of starting one for this run; it is left running
+    afterwards. The worker passes its own, so the reader's 20-second start-up is paid once, not per video.
+    """
     options = options or PipelineOptions()
     report = progress or (lambda stage, done, total: None)
     timings: dict[str, float] = {}
@@ -317,8 +343,8 @@ def run_pipeline(
             "tracker": "tracktrack",
             "track_buffer_frames": tracker.track_buffer,
         }
-    if run.frame_count == 0:
-        raise VideoError(f"No frames could be read from {info.path.name}.")
+    expected = info.frame_count if max_frames is None else min(max_frames, info.frame_count)
+    check_frames_read(run.frame_count, expected, info.path.name)
     timings["detection_and_tracking_s"] = time.perf_counter() - stage_started
 
     history: dict[int, list[tuple[int, Box]]] = defaultdict(list)
@@ -413,11 +439,14 @@ def run_pipeline(
     stage_started = time.perf_counter()
     report("ocr", 0, len(sightings))
     if sightings:
-        with OcrClient.for_project(
-            settings.ocr_project,
-            start_timeout=settings.ocr_start_timeout_seconds,
-            request_timeout=settings.ocr_request_timeout_seconds,
-        ) as reader:
+        own_reader = reader is None
+        if own_reader:
+            reader = OcrClient.for_project(
+                settings.ocr_project,
+                start_timeout=settings.ocr_start_timeout_seconds,
+                request_timeout=settings.ocr_request_timeout_seconds,
+            )
+        try:
             for start in range(0, len(sightings), 256):
                 batch = sightings[start : start + 256]
                 for sighting, reading in zip(batch, reader.read([s.crop_file for s in batch]), strict=True):
@@ -426,6 +455,9 @@ def run_pipeline(
                     sighting.unreadable = reading.unreadable
                     sighting.ctc_text = reading.ctc_text
                 report("ocr", min(start + 256, len(sightings)), len(sightings))
+        finally:
+            if own_reader:
+                reader.stop()
     timings["ocr_s"] = time.perf_counter() - stage_started
 
     # --- stage 6: one decision per vehicle ----------------------------------------------------

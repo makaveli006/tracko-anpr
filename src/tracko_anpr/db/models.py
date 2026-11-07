@@ -102,6 +102,9 @@ class ProcessingJob(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     """Last time the worker reported on this job; a stale heartbeat means the worker died."""
     worker_id: Mapped[str | None] = mapped_column(String(100))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    """How many times a worker has started this job. A job found half-done when a worker starts
+    goes back in the queue once; the second time it is failed."""
     error: Mapped[str | None] = mapped_column(Text)
     settings: Mapped[dict | None] = mapped_column(JSONColumn)
     """Snapshot of the pipeline settings this job ran with."""

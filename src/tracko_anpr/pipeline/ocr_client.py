@@ -48,6 +48,22 @@ class PlateReading:
     """The model's second decoder's reading: a second opinion, weaker on two-line plates."""
 
 
+def _die_with_parent() -> None:
+    """Runs in the child just before the reader starts: ask Linux to end it if its parent dies.
+
+    Without this, a worker killed outright (kill -9, out of memory) would leave the reader
+    running with its gigabyte of GPU memory. Does nothing where prctl is not available.
+    """
+    try:
+        import ctypes
+        import signal
+
+        pr_set_pdeathsig = 1
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(pr_set_pdeathsig, signal.SIGTERM)
+    except (OSError, AttributeError):
+        pass
+
+
 def default_command(ocr_project: Path) -> list[str]:
     """The reader's own executable inside its environment."""
     executable = ocr_project / ".venv" / "bin" / "anpr-ocr"
@@ -127,6 +143,7 @@ class OcrClient:
                 text=True,
                 encoding="utf-8",
                 bufsize=1,
+                preexec_fn=_die_with_parent if os.name == "posix" else None,
             )
         except OSError as error:
             raise OcrError(f"Could not start the plate reader ({self.command[0]}): {error}") from error

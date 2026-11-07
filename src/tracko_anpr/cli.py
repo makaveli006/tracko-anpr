@@ -317,6 +317,109 @@ def _run_db_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _timestamp() -> str:
+    return time.strftime("%H:%M:%S")
+
+
+def _log(message: str) -> None:
+    print(f"[{_timestamp()}] {message}", flush=True)
+
+
+def _run_worker(args: argparse.Namespace) -> int:
+    import signal
+
+    from tracko_anpr.db.session import make_session_factory
+    from tracko_anpr.worker.service import Worker
+
+    settings = get_settings()
+    worker = Worker(
+        settings,
+        make_session_factory(_open_database(settings)),
+        poll_seconds=args.poll_seconds,
+        log=_log,
+    )
+
+    def ask_to_stop(signum, frame):
+        _log("stop requested; finishing the current job first (press Ctrl+C again to interrupt it)")
+        worker.request_stop()
+        signal.signal(signal.SIGINT, signal.default_int_handler)  # a second Ctrl+C raises KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, ask_to_stop)
+    signal.signal(signal.SIGTERM, ask_to_stop)
+    worker.start()
+    try:
+        ran = worker.run_forever(once=args.once)
+    except KeyboardInterrupt:
+        _log("interrupted; the job is back in the queue")
+        return 130
+    _log(f"stopped after {ran} job(s)")
+    return 0
+
+
+def _run_ingest(args: argparse.Namespace) -> int:
+    """Register a video that is already on disk, without copying it."""
+    from tracko_anpr.db.models import INGESTED
+    from tracko_anpr.db.session import make_session_factory, session_scope
+    from tracko_anpr.db.store import register_video
+
+    settings = get_settings()
+    info = probe_video(args.video)
+    with session_scope(make_session_factory(_open_database(settings))) as session:
+        video = register_video(session, info, settings.root, INGESTED, name=args.name)
+        print(
+            f"Video {video.id}: {video.name} ({video.width}x{video.height}, {video.fps_decimal:.2f} FPS, "
+            f"{video.duration_s:.1f} s) at {video.file_path}"
+        )
+    return 0
+
+
+def _run_enqueue(args: argparse.Namespace) -> int:
+    """Queue a video for the worker: by id, by name, or by path (registered first if new)."""
+    from tracko_anpr.db.models import INGESTED
+    from tracko_anpr.db.session import make_session_factory, session_scope
+    from tracko_anpr.db.store import find_video, queue_job, register_video
+
+    settings = get_settings()
+    with session_scope(make_session_factory(_open_database(settings))) as session:
+        video = find_video(session, args.video)
+        if video is None:
+            path = Path(args.video)
+            if not path.is_file():
+                raise FileNotFoundError(f"No video with id or name '{args.video}', and no such file.")
+            video = register_video(session, probe_video(path), settings.root, INGESTED, name=args.name)
+        job, created = queue_job(session, video)
+        if created:
+            print(f"Queued job {job.id} for video {video.id} ({video.name}). Start a worker: uv run tracko-anpr worker")
+        else:
+            print(f"Video {video.id} ({video.name}) already has job {job.id} ({job.status}); nothing added.")
+    return 0
+
+
+def _run_jobs(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from tracko_anpr.db.models import ProcessingJob
+    from tracko_anpr.db.session import make_session_factory, session_scope
+
+    settings = get_settings()
+    with session_scope(make_session_factory(_open_database(settings))) as session:
+        jobs = session.scalars(select(ProcessingJob).order_by(ProcessingJob.id.desc()).limit(args.limit)).all()
+        if not jobs:
+            print("No jobs.")
+            return 0
+        print(f"{'job':>4}  {'video':<24} {'status':<11} {'stage':<20} {'progress':>9}  {'time':>7}  {'att':>3}  error")
+        for job in reversed(jobs):
+            progress = f"{100 * job.stage_done / job.stage_total:.0f}%" if job.stage_total else ""
+            seconds = job.processing_seconds
+            if seconds is None and job.started_at and job.finished_at:
+                seconds = (job.finished_at - job.started_at).total_seconds()
+            print(
+                f"{job.id:>4}  {job.video.name[:24]:<24} {job.status:<11} {job.stage or '':<20} {progress:>9}  "
+                f"{f'{seconds:.0f} s' if seconds is not None else '':>7}  {job.attempts:>3}  {(job.error or '')[:60]}"
+            )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracko-anpr", description="Vehicle ANPR proof of concept.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -357,6 +460,25 @@ def build_parser() -> argparse.ArgumentParser:
         "db-status", help="Check the database connection and migration, and show what is stored."
     )
     db_status.set_defaults(handler=_run_db_status)
+
+    worker = commands.add_parser("worker", help="Run queued jobs from the database, one at a time, until stopped.")
+    worker.add_argument("--once", action="store_true", help="Run at most one job, then exit.")
+    worker.add_argument("--poll-seconds", type=float, default=2.0, help="How often to look for work (default 2).")
+    worker.set_defaults(handler=_run_worker)
+
+    ingest = commands.add_parser("ingest", help="Register a video already on disk, without copying it.")
+    ingest.add_argument("video", type=Path, help="Path to an MP4 video.")
+    ingest.add_argument("--name", default=None, help="Name for the video (default: the file name).")
+    ingest.set_defaults(handler=_run_ingest)
+
+    enqueue = commands.add_parser("enqueue", help="Queue a video for the worker.")
+    enqueue.add_argument("video", help="A video id, a video name, or the path of an MP4 (registered if new).")
+    enqueue.add_argument("--name", default=None, help="Name for a newly registered video.")
+    enqueue.set_defaults(handler=_run_enqueue)
+
+    jobs = commands.add_parser("jobs", help="List processing jobs, newest last.")
+    jobs.add_argument("--limit", type=int, default=20)
+    jobs.set_defaults(handler=_run_jobs)
     return parser
 
 

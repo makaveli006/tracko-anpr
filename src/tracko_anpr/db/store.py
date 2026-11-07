@@ -18,6 +18,7 @@ from tracko_anpr.db.models import (
     COMPLETED,
     FAILED,
     PROCESSING,
+    QUEUED,
     PlateObservation,
     ProcessingJob,
     RecognitionEvent,
@@ -172,6 +173,25 @@ def store_result(session: Session, job: ProcessingJob, result: PipelineResult, r
                 )
             )
     session.flush()
+
+
+def queue_job(session: Session, video: Video) -> tuple[ProcessingJob, bool]:
+    """Put a video in the queue. Returns (job, created): an existing queued or running job is reused."""
+    pending = session.scalar(
+        select(ProcessingJob)
+        .where(ProcessingJob.video_id == video.id, ProcessingJob.status.in_((QUEUED, PROCESSING)))
+        .order_by(ProcessingJob.id)
+    )
+    if pending is not None:
+        return pending, False
+    return create_job(session, video, QUEUED), True
+
+
+def find_video(session: Session, reference: str) -> Video | None:
+    """A video by id or by name."""
+    if reference.isdigit():
+        return session.get(Video, int(reference))
+    return session.scalar(select(Video).where(Video.name == reference))
 
 
 def mark_failed(session: Session, job: ProcessingJob, error: str) -> None:

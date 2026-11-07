@@ -116,6 +116,71 @@ DATABASE: PostgreSQL 18 (stable) in Docker inside WSL
    GET  /api/videos/{id}/analytics
    GET  /api/videos/{id}/annotated
 
+ HOW THE WORKER IS BUILT (worker/service.py, Phase 9)
+
+ The processing_jobs table is the queue; nothing else passes
+ between the web app and the worker. The web app (or the
+ command line) inserts a row with status queued. A separate
+ process, `tracko-anpr worker`, does the rest:
+
+   claim      the oldest queued job, with SELECT ... FOR
+              UPDATE SKIP LOCKED, so two workers could never
+              take the same one; status → processing,
+              worker_id, attempts + 1, started_at
+   run        run_pipeline on the video's file, under the
+              video's name, with the worker's own plate
+              reader (started once, kept for every job, and
+              restarted by the client if it dies)
+   progress   stage, stage_done, stage_total and heartbeat_at
+              written on the job at every stage change and
+              at least every 2 seconds; a stale heartbeat is
+              how a dead worker can be told from a slow job
+   finish     store_result writes the figures and the rows
+              in one transaction → completed; any exception
+              → failed with "<type>: <message>" and the
+              half-written folders removed; the worker then
+              carries on with the next job
+   recover    on start-up, every job still at processing was
+              abandoned by a worker that died. First time:
+              back to queued, folders removed. Second time:
+              failed, with the reason, so a video that
+              crashes the worker cannot loop for ever.
+   stop       Ctrl+C or SIGTERM finishes the current job and
+              exits; a second Ctrl+C interrupts it and puts
+              the job back in the queue (not counted as a
+              crash)
+
+ The reader child process is started with PR_SET_PDEATHSIG,
+ so a worker killed outright (kill -9, out of memory) takes
+ the reader and its GPU memory down with it.
+
+ Commands:
+   uv run tracko-anpr worker [--once] [--poll-seconds N]
+   uv run tracko-anpr ingest <path> [--name N]   register a
+              file already on disk (no copy): for videos too
+              large to upload through the browser
+   uv run tracko-anpr enqueue <id | name | path>  queue it
+   uv run tracko-anpr jobs                        the queue
+
+ Verified 2026-11-07 against PostgreSQL:
+   • A worker killed with kill -9 at 33% of plate detection
+     on trafiic_part01: the next worker put the job back in
+     the queue, removed the half-written folders and ran it
+     to completion (223 s). One job, attempts 2, and the
+     rows equal the file results: 182 tracks, 128 plates,
+     91 events. No duplicates.
+   • A reader whose parent was killed with kill -9 was gone
+     8 seconds later and GPU use fell from 997 to 457 MiB.
+   • A text file named .mp4 is refused at ingest ("moov
+     atom not found").
+   • A truncated MP4 (400 KB of a 2-minute clip) at first
+     "completed" with 7 frames and no vehicles, because
+     FFmpeg stops quietly where a file breaks. The pipeline
+     now fails a run that reads under 90% of the frames the
+     header declares: "Only 7 of 3680 frames could be read
+     from truncated.mp4; the file is probably truncated or
+     damaged."
+
                          │
                          ▼
 

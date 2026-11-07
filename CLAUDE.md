@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Offline proof of concept for Indian vehicle detection, tracking and number plate recognition (ANPR) on uploaded MP4 videos, shown through a dashboard for a leadership demo. It is not a live-camera system.
 
-**Status: Phases 1 to 8 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and one command runs a video through the whole pipeline from the command line (`tracko-anpr process`): vehicle detection and tracking, plate detection, plate reading through the reader service, validation across frames, and the annotated video. Results are files under `storage/` and rows in PostgreSQL (the container, the seven tables, the Alembic migration and the metric queries exist since Phase 8). The pipeline's settings and thresholds are **frozen** as of Phase 7 (2026-11-06; the list is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`): changing any of them means processing every demo video again, so do not tune them without the user asking. The worker, the API and the dashboard do not exist yet. `PLAN.md` has the checklist.
+**Status: Phases 1 to 9 of 14 are done.** Both Python environments are installed and see the GPU, the model files are in `models/`, and one command runs a video through the whole pipeline from the command line (`tracko-anpr process`): vehicle detection and tracking, plate detection, plate reading through the reader service, validation across frames, and the annotated video. Results are files under `storage/` and rows in PostgreSQL (the container, the seven tables, the Alembic migrations and the metric queries exist since Phase 8). The worker (`tracko-anpr worker`, Phase 9) takes queued jobs from the `processing_jobs` table, runs the pipeline and writes progress and results back; `enqueue`, `ingest` and `jobs` feed and watch it. The pipeline's settings and thresholds are **frozen** as of Phase 7 (2026-11-06; the list is under "Acceptance run and frozen settings" in `ARCHITECTURE.md`): changing any of them means processing every demo video again, so do not tune them without the user asking. The API and the dashboard do not exist yet. `PLAN.md` has the checklist.
 
 **The build follows `PLAN.md`:** 14 phases, done one at a time. Start a phase only on the user's go-ahead, never because the previous one finished. When a phase is done, say "Phase N of 14 complete — M phases left", list them, and stop. Tick the phase off in `PLAN.md`.
 
@@ -40,6 +40,10 @@ uv run tracko-anpr track <video.mp4> --no-video       # detections and tracks on
 uv run tracko-anpr read-plates <folder>               # read plate crops through the reader service (full round trip)
 uv run tracko-anpr process <video.mp4> --no-db        # files only, no database rows
 uv run tracko-anpr db-status                          # is the database up and migrated, and what is in it
+uv run tracko-anpr enqueue <video.mp4 | id | name>    # queue a video for the worker (a new path is registered first)
+uv run tracko-anpr ingest <video.mp4> [--name N]      # register a file already on disk without copying it
+uv run tracko-anpr worker                             # run queued jobs until Ctrl+C; --once runs one job and exits
+uv run tracko-anpr jobs                               # the queue: status, stage, progress, attempts, error
 docker compose up -d                                  # start PostgreSQL (needs .env with POSTGRES_PASSWORD)
 uv run alembic upgrade head                           # create or update the tables
 uv run alembic revision --autogenerate -m "..."       # after changing db/models.py; read the file it writes
@@ -120,6 +124,16 @@ The database layer (`src/tracko_anpr/db/`, Phase 8) is separate from the pipelin
 - `session.py`: `make_engine`, `session_scope`, `check_connection` (raises `DatabaseUnavailable` with a plain message), `current_revision`.
 - `migrations/` is Alembic; `env.py` takes the URL from the project settings, so there is no password in `alembic.ini`. One revision so far (`fc32b7b47ec6`, the seven tables). Autogenerate misses renames and server defaults: read every generated file.
 - A track's `counts_as_vehicle` (countable and not a repeat) is stored, not recomputed; Total Vehicles is a count of that column. A repeat track keeps its `recognition_events` row (its number) but is not counted.
+- Two migrations so far: `fc32b7b47ec6` (the seven tables) and `ba9303988888` (`processing_jobs.attempts`).
+
+The worker (`src/tracko_anpr/worker/service.py`, Phase 9) is the only thing that runs the pipeline for the application; the web app never does:
+
+- `Worker.start()` recovers jobs a dead worker left at `processing` (first time back to the queue with the half-written folders removed, second time failed), then `run_forever()` claims the oldest queued job with `FOR UPDATE SKIP LOCKED`, runs `run_pipeline` under the video's `name` with the worker's own long-lived reader, writes stage/progress/heartbeat on the job every 2 s, and ends it `completed` or `failed` (`"<ExceptionType>: <message>"`). One bad video never stops the worker.
+- `run_pipeline(..., reader=...)` accepts a reader it does not own; the worker passes its own so the 20-second reader start-up is paid once per worker, not per job. The reader child is started with `PR_SET_PDEATHSIG`, so `kill -9` on the worker takes the reader with it.
+- Ctrl+C once lets the current job finish; twice interrupts it and requeues it (attempts not counted). `--once` runs a single job, which is what the tests of the real pipeline use.
+- The pipeline function and the reader factory are constructor parameters, so `tests/test_worker.py` exercises claiming, progress, failure and recovery with a fake pipeline on SQLite. `tests/result_builders.py` holds the shared fake `PipelineResult`.
+- `enqueue` reuses a video's pending job instead of adding a second one. `ingest` registers a file where it lies (relative to the project root when inside it), for videos too large for a browser upload.
+- **A damaged file must fail, not complete empty.** FFmpeg stops quietly where a file breaks, so a truncated MP4 once "completed" with 7 frames and no vehicles. `check_frames_read` in `runner.py` fails any run that decodes under 90% of the frames the header declares (`MIN_FRAMES_READ_SHARE`); do not remove it to make a bad file "work".
 
 Things learned building the full pipeline (Phase 6, 2026-11-06) that are easy to undo by mistake:
 
@@ -189,7 +203,7 @@ These are assumed by the specs but not yet confirmed or available:
 
 ## Repository notes
 
-- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command: `process`, `track`, `read-plates`, `db-status`), the `pipeline` and `db` packages described above, and still-empty subpackages `api`, `dashboard` (`components`, `pages`) and `worker`. `migrations/`, `alembic.ini` and `docker-compose.yml` are at the project root.
+- Main package `src/tracko_anpr/` has `config.py` (settings from `.env` and the environment), `cli.py` (the `tracko-anpr` command: `process`, `track`, `read-plates`, `db-status`, `worker`, `enqueue`, `ingest`, `jobs`), the `pipeline`, `db` and `worker` packages described above, and still-empty subpackages `api` and `dashboard` (`components`, `pages`). `migrations/`, `alembic.ini` and `docker-compose.yml` are at the project root.
 - `models/` holds what the app loads and is git-ignored apart from `.gitkeep`: `yolo26m.pt` (official Ultralytics release), `plate/` (the safely re-saved plate detector) and `awiros/` (the OCR model, its dictionary and its reference `test.py`). Sources and checksums are recorded in `ocr/README.md`.
 - `storage/` holds uploads and generated files, also git-ignored apart from `.gitkeep`.
 - Commits are staged with `git add .`, so `.gitignore` is the only thing keeping large or secret files out. It covers `videos/`, model weights, `runs/` and `datasets/` (Ultralytics output), `.env`, and the vendored PaddleOCR source. Add a rule there before creating any new kind of generated file.

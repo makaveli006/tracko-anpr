@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from tracko_anpr.pipeline.annotate import (
     PLATE_COLOR,
@@ -16,6 +17,7 @@ from tracko_anpr.pipeline.runner import (
     PlateSighting,
     VehicleRecord,
     best_plate_sighting,
+    check_frames_read,
     mark_repeat_tracks,
     plate_owner,
     settle_shared_numbers,
@@ -23,6 +25,7 @@ from tracko_anpr.pipeline.runner import (
 )
 from tracko_anpr.pipeline.tracking import TrackedVehicle
 from tracko_anpr.pipeline.validation import CONFIRMED, NOT_DETECTED, UNCONFIRMED, PlateDecision
+from tracko_anpr.pipeline.video import VideoError
 
 
 def vehicle(track_id, class_name="Car", countable=True, camera_car=False, status=None, text=""):
@@ -268,3 +271,25 @@ def test_plate_drawing_stays_inside_the_frame_at_the_edges():
     draw_plates(frame, vehicles, {1: PlateLabel("KL10AB1234", 0.5, False)}, {1: (140.0, 110.0, 159.0, 119.0)})
     assert frame.shape == (120, 160, 3)
     assert frame.any()
+
+
+# --- a damaged file must fail, not complete with nothing ----------------------------------------
+
+
+def test_a_video_that_decodes_to_the_end_passes():
+    check_frames_read(3680, 3680, "clip.mp4")
+    check_frames_read(3677, 3680, "clip.mp4")  # a frame or two short is normal where the header estimates
+
+
+def test_a_truncated_video_is_an_error_naming_the_shortfall():
+    with pytest.raises(VideoError, match="Only 7 of 3680 frames could be read from clip.mp4"):
+        check_frames_read(7, 3680, "clip.mp4")
+
+
+def test_no_frames_at_all_is_an_error():
+    with pytest.raises(VideoError, match="No frames could be read"):
+        check_frames_read(0, 3680, "clip.mp4")
+
+
+def test_an_unknown_expected_count_only_requires_some_frames():
+    check_frames_read(5, 0, "clip.mp4")
