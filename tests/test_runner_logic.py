@@ -160,6 +160,20 @@ def test_the_smaller_vehicle_keeps_its_own_plate_whichever_cut_out_it_was_found_
     assert plate_owner(plate, 358, boxes) == 357
 
 
+def test_a_partly_hidden_vehicle_with_the_smaller_box_does_not_take_the_nearer_vehicles_plate():
+    # From kdy: a bus behind a white car has the smaller box, because the car hides most of it.
+    bus, car = (1854.0, 64.0, 2932.0, 638.0), (1504.0, 310.0, 2760.0, 978.0)
+    plate = (2417.0, 549.0, 2618.0, 620.0)
+    assert plate_owner(plate, 1, {1: bus, 4: car}) == 4
+    assert plate_owner(plate, 4, {1: bus, 4: car}) == 4
+
+
+def test_a_vehicle_almost_wholly_inside_another_box_keeps_its_plate_even_if_that_box_reaches_lower():
+    van, car_inside = (1000.0, 300.0, 2000.0, 1000.0), (1200.0, 500.0, 1500.0, 800.0)
+    plate = (1300.0, 700.0, 1400.0, 740.0)
+    assert plate_owner(plate, 1, {1: van, 2: car_inside}) == 2
+
+
 def test_a_plate_outside_every_other_vehicle_stays_with_the_one_it_was_found_in():
     plate = (1939.8, 875.2, 2022.2, 900.6)
     assert plate_owner(plate, 271, {271: VAN, 213: CAR_AHEAD}) == 271

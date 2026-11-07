@@ -34,9 +34,17 @@ from tracko_anpr.pipeline.cropping import Box, best_frames, box_area, crop_regio
 from tracko_anpr.pipeline.direction import Direction, DirectionRules, travel_direction
 from tracko_anpr.pipeline.ocr_client import OcrClient
 from tracko_anpr.pipeline.plates import PlateDetector, cut_plate
+from tracko_anpr.pipeline.repeats import ParkedRules, ParkedTrack, colour_look, parked_groups
 from tracko_anpr.pipeline.results import frame_time, write_detections_csv
 from tracko_anpr.pipeline.rules import TrackRules, is_camera_car, is_countable
-from tracko_anpr.pipeline.tracking import VEHICLE_CLASSES, TrackingRun, VehicleTracker, format_track_id, track_video
+from tracko_anpr.pipeline.tracking import (
+    VEHICLE_CLASSES,
+    CameraPath,
+    TrackingRun,
+    VehicleTracker,
+    format_track_id,
+    track_video,
+)
 from tracko_anpr.pipeline.validation import (
     CONFIRMED,
     NOT_DETECTED,
@@ -88,6 +96,9 @@ STAGES = (
 StageProgress = Callable[[str, int, int], None]
 """Called with (stage name, units done, units expected)."""
 
+NESTED_SHARE = 0.8
+"""A box with this share of itself inside another counts as enclosed by it (see `plate_owner`)."""
+
 NOT_COUNTED = "not_counted"
 """Status of a track that is not a countable vehicle; it gets no plate decision."""
 
@@ -102,6 +113,8 @@ class PipelineOptions:
     """Margin kept around a vehicle box when it is cut out, as a fraction of the box."""
     track_rules: TrackRules = field(default_factory=TrackRules)
     validation: ValidationRules = field(default_factory=ValidationRules)
+    parked: ParkedRules = field(default_factory=ParkedRules)
+    """When tracks are the same parked vehicle (pipeline/repeats.py)."""
     direction: DirectionRules = field(default_factory=DirectionRules)
     """How a track's travel direction is read from its boxes; outside the frozen settings (labels only)."""
     render_video: bool = True
@@ -148,7 +161,8 @@ class VehicleRecord:
     plate_crop: Path | None = None
     sightings: list[PlateSighting] = field(default_factory=list)
     same_vehicle_as: int | None = None
-    """Track id of an earlier track that turned out to be this same vehicle (same confirmed number)."""
+    """Track id of the track that is counted for this same vehicle: an earlier one with the same confirmed
+    number, or, for a parked vehicle, the one with a confirmed number (else the earliest)."""
     direction: Direction = field(default_factory=Direction)
     """Which way it travelled (towards / away from the camera, left / right), from its boxes."""
 
@@ -197,18 +211,39 @@ def check_frames_read(frames_read: int, frames_expected: int, video_name: str) -
 def plate_owner(plate: Box, found_in: int, vehicle_boxes: dict[int, Box]) -> int:
     """Which vehicle a plate belongs to, given every countable vehicle's box in that frame.
 
-    Vehicle boxes overlap in traffic: the box of a van seen from the side also takes in the back
-    of the car ahead of it, number plate included. So a plate found inside vehicle `found_in`'s
-    cut-out goes to the smallest vehicle box that contains the plate's centre. A vehicle in
-    front of another has the smaller box, and it is the one whose plate can be seen.
+    Vehicle boxes overlap in traffic, so a plate found in vehicle `found_in`'s cut-out may be another
+    vehicle's. Among the boxes containing the plate's centre, one that lies almost wholly inside
+    another wins: the box of a van seen from the side takes in the car ahead of it. When two boxes
+    only partly overlap, the nearer vehicle wins, the one whose box reaches lower in the picture.
+    Box size alone is not enough: a bus hidden behind a car has the smaller box, and it once
+    received the car's plate.
     """
     centre_x, centre_y = (plate[0] + plate[2]) / 2, (plate[1] + plate[3]) / 2
-    candidates = [
-        (box_area(box), track_id)
+    candidates = sorted(
+        track_id
         for track_id, box in vehicle_boxes.items()
         if track_id == found_in or (box[0] <= centre_x <= box[2] and box[1] <= centre_y <= box[3])
-    ]
-    return min(candidates)[1] if candidates else found_in
+    )
+    if not candidates:
+        return found_in
+    owner = candidates[0]
+    for track_id in candidates[1:]:
+        held, challenger = vehicle_boxes[owner], vehicle_boxes[track_id]
+        if (
+            share_inside(challenger, held) >= NESTED_SHARE
+            or share_inside(held, challenger) < NESTED_SHARE
+            and challenger[3] > held[3]
+        ):
+            owner = track_id
+    return owner
+
+
+def share_inside(box: Box, around: Box) -> float:
+    """How much of `box` lies inside `around`, from 0 to 1."""
+    width = min(box[2], around[2]) - max(box[0], around[0])
+    height = min(box[3], around[3]) - max(box[1], around[1])
+    area = box_area(box)
+    return max(0.0, width) * max(0.0, height) / area if area else 0.0
 
 
 def settle_shared_numbers(vehicles: list[VehicleRecord]) -> None:
@@ -256,6 +291,59 @@ def mark_repeat_tracks(vehicles: list[VehicleRecord]) -> None:
         elif vehicle.first_frame > last_frame_of[number]:
             vehicle.same_vehicle_as = first_with_number[number].track_id
             last_frame_of[number] = max(last_frame_of[number], vehicle.last_frame)
+
+
+def parked_track(
+    vehicle: VehicleRecord, observations: list[tuple[int, Box]], camera: CameraPath, frame_width: int
+) -> ParkedTrack:
+    """A vehicle as the parked-repeat rule sees it: where it stood in the scene, and how far it moved."""
+
+    def median(values: list[float]) -> float:
+        return sorted(values)[len(values) // 2]
+
+    placed = []
+    for frame_index, box in observations:
+        shift_x, shift_y = camera.at(frame_index)
+        placed.append((box[0] - shift_x, box[1] - shift_y, box[2] - shift_x, box[3] - shift_y))
+    ends = max(1, len(placed) // 5)
+    start = median([(box[0] + box[2]) / 2 for box in placed[:ends]])
+    end = median([(box[0] + box[2]) / 2 for box in placed[-ends:]])
+    image = cv2.imread(str(vehicle.vehicle_crop)) if vehicle.vehicle_crop is not None else None
+    number = vehicle.decision.text if vehicle.status == CONFIRMED else None
+    return ParkedTrack(
+        track_id=vehicle.track_id,
+        first_frame=vehicle.first_frame,
+        last_frame=vehicle.last_frame,
+        box=tuple(median([box[i] for box in placed]) for i in range(4)),
+        drift=abs(end - start) / frame_width,
+        look=colour_look(image) if image is not None else None,
+        number=number,
+    )
+
+
+def mark_parked_repeats(
+    vehicles: list[VehicleRecord],
+    history: dict[int, list[tuple[int, Box]]],
+    camera: CameraPath,
+    frame_width: int,
+    rules: ParkedRules | None = None,
+) -> None:
+    """Find tracks that are one parked vehicle, which `mark_repeat_tracks` cannot see without a number.
+
+    One track of each group stays counted: the one with a confirmed number, otherwise the earliest.
+    So a repeat never hides a confirmed plate.
+    """
+    tracks = [
+        parked_track(vehicle, history[vehicle.track_id], camera, frame_width)
+        for vehicle in vehicles
+        if vehicle.counts_as_vehicle and history[vehicle.track_id]
+    ]
+    by_id = {vehicle.track_id: vehicle for vehicle in vehicles}
+    for group in parked_groups(tracks, rules):
+        kept = next((track for track in group if track.number), group[0])
+        for track in group:
+            if track is not kept:
+                by_id[track.track_id].same_vehicle_as = kept.track_id
 
 
 def summarize(vehicles: list[VehicleRecord]) -> dict:
@@ -354,6 +442,7 @@ def run_pipeline(
     expected = info.frame_count if max_frames is None else min(max_frames, info.frame_count)
     check_frames_read(run.frame_count, expected, info.path.name)
     timings["detection_and_tracking_s"] = time.perf_counter() - stage_started
+    timings["camera_motion_s"] = run.camera_seconds
 
     history: dict[int, list[tuple[int, Box]]] = defaultdict(list)
     for frame_index, tracked in enumerate(run.frames):
@@ -481,6 +570,7 @@ def run_pipeline(
         report("validation", position, len(countable))
     settle_shared_numbers(countable)
     mark_repeat_tracks(countable)
+    mark_parked_repeats(countable, history, run.camera, info.width, options.parked)
     timings["validation_s"] = time.perf_counter() - stage_started
 
     # --- stage 7: annotated video and result files --------------------------------------------
@@ -570,6 +660,9 @@ def run_pipeline(
             "confirm_confidence": options.validation.confirm_confidence,
             "min_observations": options.validation.min_observations,
             "consensus_share": options.validation.consensus_share,
+            "parked_max_move": options.parked.max_move,
+            "parked_min_overlap": options.parked.min_overlap,
+            "parked_min_look": options.parked.min_look,
             "direction_approach_ratio": options.direction.approach_ratio,
             "direction_sideways_fraction": options.direction.sideways_fraction,
         },

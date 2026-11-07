@@ -5,6 +5,10 @@
 A true number with `?` in it was only partly legible: it can show a reading to be wrong or
 consistent, but it cannot prove one right, so such rows are "not checkable" and stay out of the
 accuracy. The margin is the procedure's ±1/√n.
+
+The export lists counted vehicles only, so a labelled track missing from it is one the system
+merged into another. That is right when the label says it is a repeat too. When the label says
+it is a vehicle of its own, a real vehicle has been lost from the count, and it is reported.
 """
 
 from __future__ import annotations
@@ -40,6 +44,9 @@ class Measurement:
     unconfirmed: dict[str, int] = field(default_factory=dict)
     type_errors: list[dict] = field(default_factory=list)
     confirmed_on_duplicates: list[dict] = field(default_factory=list)
+    merged_by_system: int = 0
+    lost_vehicles: list[dict] = field(default_factory=list)
+    """Labelled as a vehicle of its own, but merged away by the system."""
 
     @property
     def accuracy(self) -> float | None:
@@ -57,7 +64,17 @@ def measure(system: list[dict], truth: list[dict]) -> Measurement:
     result = Measurement(labelled=len(truth))
     result.unconfirmed = {"right number": 0, "wrong number": 0, "no number": 0, "not checkable": 0}
     for label in truth:
-        answer = answers[label["track"]]
+        answer = answers.get(label["track"])
+        if answer is None:
+            result.merged_by_system += 1
+            if label["is_vehicle"] != "yes":
+                result.false_tracks += 1
+            elif label["duplicate_of"]:
+                result.duplicates += 1
+            else:
+                result.vehicles += 1
+                result.lost_vehicles.append(label)
+            continue
         row = {**label, "system_number": answer["registration_number"], "system_status": answer["status"]}
         if label["is_vehicle"] != "yes":
             result.false_tracks += 1
@@ -104,6 +121,8 @@ def report(m: Measurement) -> str:
         f"False tracks             {m.false_tracks}",
         f"Repeats of a vehicle     {m.duplicates}",
         f"Real distinct vehicles   {m.vehicles}",
+        f"Vehicles counted         {m.labelled - m.merged_by_system} ({m.merged_by_system} tracks merged, "
+        f"{len(m.lost_vehicles)} of them real vehicles lost)",
         f"Confirmed among them     {m.confirmed} ({m.correct} correct, {len(m.wrong)} wrong, "
         f"{len(m.not_checkable)} not checkable)",
         f"Reading accuracy         {percent(m.accuracy, checked)}",
@@ -117,6 +136,7 @@ def report(m: Measurement) -> str:
         ("Confirmed, not checkable", m.not_checkable, ("track", "system_number", "true_number")),
         ("Confirmed on a repeat track", m.confirmed_on_duplicates, ("track", "system_number", "true_number")),
         ("Type errors", m.type_errors, ("track", "system_type", "true_type")),
+        ("Real vehicles lost to a merge", m.lost_vehicles, ("track", "true_type", "note")),
     ):
         if rows:
             lines += ["", title] + ["  " + "  ".join(str(row[column]) for column in columns) for row in rows]

@@ -154,7 +154,7 @@ class VehicleTrack(Base):
     """Followed long enough and came near enough to count (pipeline/rules.py), and not the camera car."""
     camera_car: Mapped[bool] = mapped_column(Boolean, default=False)
     same_vehicle_as: Mapped[int | None] = mapped_column(Integer)
-    """Track id (in this job) of an earlier track that is the same vehicle; such a track is not counted again."""
+    """Track id (in this job) of the track counted for this same vehicle; such a track is not counted again."""
     counts_as_vehicle: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     """countable and not a repeat: adds one to Total Vehicles."""
     vehicle_crop_path: Mapped[str | None] = mapped_column(Text)
